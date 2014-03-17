@@ -818,6 +818,8 @@ bool Bitcredit_AcceptToMemoryPool(Bitcredit_CTxMemPool& pool, CValidationState &
 
     	Credits_CCoinsView bitcredit_dummy;
         Credits_CCoinsViewCache credits_view(bitcredit_dummy);
+
+        int64_t nValueIn = 0;
         {
         LOCK(pool.cs);
         Credits_CCoinsViewMemPool credits_viewMemPool(*credits_pcoinsTip, pool);
@@ -868,6 +870,12 @@ bool Bitcredit_AcceptToMemoryPool(Bitcredit_CTxMemPool& pool, CValidationState &
         // Bring the best block into scope
         credits_view.Credits_GetBestBlock();
 
+        if(tx.IsClaim()) {
+        	nValueIn = credits_view.Claim_GetValueIn(tx);
+        } else {
+        	nValueIn = credits_view.Credits_GetValueIn(tx);
+        }
+
         // we have all inputs cached now, so switch back to dummy, so we don't need to keep lock on mempool
         credits_view.Credits_SetBackend(bitcredit_dummy);
         }
@@ -879,13 +887,6 @@ bool Bitcredit_AcceptToMemoryPool(Bitcredit_CTxMemPool& pool, CValidationState &
         // Note: if you modify this code to accept non-standard transactions, then
         // you should add code here to check that the transaction does a
         // reasonable number of ECDSA signature verifications.
-
-        int64_t nValueIn = 0;
-        if(tx.IsClaim()) {
-        	nValueIn = credits_view.Claim_GetValueIn(tx);
-        } else {
-        	nValueIn = credits_view.Credits_GetValueIn(tx);
-        }
 
         int64_t nValueOut = tx.GetValueOut();
         int64_t nFees = nValueIn-nValueOut;
@@ -2570,11 +2571,7 @@ bool static Bitcredit_ConnectTip(CValidationState &state, Credits_CBlockIndex *p
         return false;
     // Remove conflicting transactions from the mempool.
     list<Credits_CTransaction> txConflicted;
-    BOOST_FOREACH(const Credits_CTransaction &tx, block.vtx) {
-        list<Credits_CTransaction> unused;
-        credits_mempool.remove(tx, unused);
-        credits_mempool.removeConflicts(tx, txConflicted);
-    }
+    credits_mempool.removeForBlock(block.vtx, pindexNew->nHeight, txConflicted);
     credits_mempool.check(credits_pcoinsTip);
     // Update chainActive & related variables.
     Bitcredit_UpdateTip(pindexNew);

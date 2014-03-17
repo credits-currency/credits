@@ -800,6 +800,7 @@ bool Bitcoin_AcceptToMemoryPool(Bitcoin_CTxMemPool& pool, CValidationState &stat
         Bitcoin_CCoinsView dummy;
         Bitcoin_CCoinsViewCache view(dummy);
 
+        int64_t nValueIn = 0;
         {
         LOCK(pool.cs);
         Bitcoin_CCoinsViewMemPool viewMemPool(*bitcoin_pcoinsTip, pool);
@@ -828,6 +829,8 @@ bool Bitcoin_AcceptToMemoryPool(Bitcoin_CTxMemPool& pool, CValidationState &stat
         // Bring the best block into scope
         view.GetBestBlock();
 
+        nValueIn = view.GetValueIn(tx);
+
         // we have all inputs cached now, so switch back to dummy, so we don't need to keep lock on mempool
         view.SetBackend(dummy);
         }
@@ -840,7 +843,6 @@ bool Bitcoin_AcceptToMemoryPool(Bitcoin_CTxMemPool& pool, CValidationState &stat
         // you should add code here to check that the transaction does a
         // reasonable number of ECDSA signature verifications.
 
-        int64_t nValueIn = view.GetValueIn(tx);
         int64_t nValueOut = tx.GetValueOut();
         int64_t nFees = nValueIn-nValueOut;
         double dPriority = view.GetPriority(tx, bitcoin_chainActive.Height());
@@ -2944,11 +2946,7 @@ bool static Bitcoin_ConnectTip(CValidationState &state, Bitcoin_CBlockIndex *pin
     }
     // Remove conflicting transactions from the mempool.
     list<Bitcoin_CTransaction> txConflicted;
-    BOOST_FOREACH(const Bitcoin_CTransaction &tx, block.vtx) {
-        list<Bitcoin_CTransaction> unused;
-        bitcoin_mempool.remove(tx, unused);
-        bitcoin_mempool.removeConflicts(tx, txConflicted);
-    }
+    bitcoin_mempool.removeForBlock(block.vtx, pindexNew->nHeight, txConflicted);
     bitcoin_mempool.check(bitcoin_pcoinsTip);
     // Update chainActive & related variables.
     Bitcoin_UpdateTip(pindexNew);

@@ -76,6 +76,9 @@ enum BindFlags {
     BF_REPORT_ERROR = (1U << 1)
 };
 
+static const char* CREDITS_FEE_ESTIMATES_FILENAME="credits_fee_estimates.dat";
+static const char* BITCOIN_FEE_ESTIMATES_FILENAME="bitcoin_fee_estimates.dat";
+
 
 //////////////////////////////////////////////////////////////////////////////
 //
@@ -151,6 +154,13 @@ void Shutdown()
 #endif
     StopNode();
     bitcredit_netParams->UnregisterNodeSignals();
+    boost::filesystem::path credits_est_path = GetDataDir() / CREDITS_FEE_ESTIMATES_FILENAME;
+    CAutoFile credits_est_fileout = CAutoFile(fopen(credits_est_path.string().c_str(), "wb"), SER_DISK, Credits_Params().ClientVersion());
+    if (credits_est_fileout)
+        credits_mempool.WriteFeeEstimates(credits_est_fileout);
+    else
+        LogPrintf("Credits: failed to write fee estimates");
+
     {
         LOCK(cs_main);
 #ifdef ENABLE_WALLET
@@ -206,6 +216,13 @@ void Shutdown()
 #endif
 
     bitcoin_netParams->UnregisterNodeSignals();
+    boost::filesystem::path bitcoin_est_path = GetDataDir() / BITCOIN_FEE_ESTIMATES_FILENAME;
+    CAutoFile bitcoin_est_fileout = CAutoFile(fopen(bitcoin_est_path.string().c_str(), "wb"), SER_DISK, Bitcoin_Params().ClientVersion());
+    if (bitcoin_est_fileout)
+        bitcoin_mempool.WriteFeeEstimates(bitcoin_est_fileout);
+    else
+        LogPrintf("failed to write fee estimates");
+
     {
         LOCK(cs_main);
         if (bitcoin_pblocktree)
@@ -1466,6 +1483,16 @@ bool Bitcredit_AppInit2(boost::thread_group& threadGroup) {
             LogPrintf("No blocks matching %s were found\n", strMatch);
         return false;
     }
+
+    boost::filesystem::path credits_est_path = GetDataDir() / CREDITS_FEE_ESTIMATES_FILENAME;
+    CAutoFile credits_est_filein = CAutoFile(fopen(credits_est_path.string().c_str(), "rb"), SER_DISK, Credits_Params().ClientVersion());
+    if (credits_est_filein)
+        credits_mempool.ReadFeeEstimates(credits_est_filein);
+
+    boost::filesystem::path bitcoin_est_path = GetDataDir() / BITCOIN_FEE_ESTIMATES_FILENAME;
+    CAutoFile bitcoin_est_filein = CAutoFile(fopen(bitcoin_est_path.string().c_str(), "rb"), SER_DISK, Bitcoin_Params().ClientVersion());
+    if (bitcoin_est_filein)
+        bitcoin_mempool.ReadFeeEstimates(bitcoin_est_filein);
 
     // ********************************************************* Step 8: load wallet
 #ifdef ENABLE_WALLET
