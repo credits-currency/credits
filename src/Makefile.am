@@ -233,16 +233,16 @@ clean-local:
 	rm -f leveldb/*/*.gcno leveldb/helpers/memenv/*.gcno
 
 .rc.o:
-	@test -f $(WINDRES) && $(WINDRES) -i $< -o $@ || \
-	  echo error: could not build $@
+	@test -f $(WINDRES)
+	$(AM_V_GEN) $(WINDRES) -i $< -o $@
 
 .mm.o:
-	$(OBJC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) \
+	$(AM_V_CXX) $(OBJCXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) \
 	  $(CPPFLAGS) $(AM_CXXFLAGS) $(QT_INCLUDES) $(CXXFLAGS)  -c -o $@ $<
 
 %.pb.cc %.pb.h: %.proto
-	test -f $(PROTOC) && $(PROTOC) --cpp_out=$(@D) --proto_path=$(abspath $(<D) $<)  || \
-	  echo error: could not build $@
+	@test -f $(PROTOC)
+	$(AM_V_GEN) $(PROTOC) --cpp_out=$(@D) --proto_path=$(abspath $(<D) $<)
 
 LIBCREDITS_SERVER=libcredits_server.a
 LIBCREDITS_WALLET=libcredits_wallet.a
