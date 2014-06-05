@@ -1,11 +1,6 @@
-AM_CPPFLAGS =  $(INCLUDES) \
-  -I$(builddir)/obj \
-  $(BDB_CPPFLAGS) \
-  $(BOOST_CPPFLAGS) $(BOOST_INCLUDES)
-AM_CPPFLAGS += $(LEVELDB_CPPFLAGS)
+AM_CPPFLAGS =  $(INCLUDES)
 AM_LDFLAGS = $(PTHREAD_CFLAGS)
 
-AM_CPPFLAGS += -I$(builddir)
 
 if EMBEDDED_LEVELDB
 LEVELDB_CPPFLAGS += -I$(srcdir)/leveldb/include
@@ -22,11 +17,14 @@ $(LIBLEVELDB) $(LIBMEMENV):
           OPT="$(CXXFLAGS) $(CPPFLAGS)"
 endif
 
+CREDITS_INCLUDES=-I$(builddir) -I$(builddir)/obj $(BOOST_CPPFLAGS) $(LEVELDB_CPPFLAGS)
+
 noinst_LIBRARIES = \
   libcredits_server.a \
   libcredits_common.a \
   libcredits_cli.a
 if ENABLE_WALLET
+CREDITS_INCLUDES += $(BDB_CPPFLAGS)
 noinst_LIBRARIES += libcredits_wallet.a
 endif
 
@@ -118,6 +116,7 @@ obj/build.h: FORCE
 	  $(abs_top_srcdir)
 version.o: obj/build.h
 
+libcredits_server_a_CPPFLAGS = $(CREDITS_INCLUDES)
 libcredits_server_a_SOURCES = \
   addrman.cpp \
   alert.cpp \
@@ -148,6 +147,7 @@ libcredits_server_a_SOURCES = \
   $(JSON_H) \
   $(BITCOIN_CORE_H)
 
+libcredits_wallet_a_CPPFLAGS = $(CREDITS_INCLUDES)
 libcredits_wallet_a_SOURCES = \
   db.cpp \
   bitcoin_db.cpp \
@@ -160,6 +160,7 @@ libcredits_wallet_a_SOURCES = \
   bitcoin_walletdb.cpp \
   $(BITCOIN_CORE_H)
 
+libcredits_common_a_CPPFLAGS = $(CREDITS_INCLUDES)
 libcredits_common_a_SOURCES = \
   base58.cpp \
   allocators.cpp \
@@ -207,8 +208,8 @@ if TARGET_WINDOWS
 creditsd_SOURCES += creditsd-res.rc
 endif
 
-AM_CPPFLAGS += $(BDB_CPPFLAGS)
 creditsd_LDADD += $(BOOST_LIBS) $(BDB_LIBS)
+creditsd_CPPFLAGS = $(CREDITS_INCLUDES)
 
 # credits-cli binary #
 credits_cli_LDADD = \
@@ -216,6 +217,7 @@ credits_cli_LDADD = \
   libcredits_common.a \
   $(BOOST_LIBS)
 credits_cli_SOURCES = credits-cli.cpp
+credits_cli_CPPFLAGS = $(CREDITS_INCLUDES)
 #
 
 if TARGET_WINDOWS
