@@ -114,7 +114,7 @@ obj/build.h: FORCE
 	@$(MKDIR_P) $(builddir)/obj
 	@$(top_srcdir)/share/genbuild.sh $(abs_top_builddir)/src/obj/build.h \
 	  $(abs_top_srcdir)
-version.o: obj/build.h
+libcredits_common_a-version.$(OBJEXT): obj/build.h
 
 libcredits_server_a_CPPFLAGS = $(CREDITS_INCLUDES)
 libcredits_server_a_SOURCES = \
