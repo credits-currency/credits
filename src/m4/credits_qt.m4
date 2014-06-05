@@ -100,7 +100,7 @@ AC_DEFUN([BITCOIN_QT_CONFIGURE],[
   BITCOIN_QT_PATH_PROGS([LRELEASE], [lrelease-qt${credits_qt_got_major_vers} lrelease${credits_qt_got_major_vers} lrelease], $qt_bin_path)
   BITCOIN_QT_PATH_PROGS([LUPDATE], [lupdate-qt${credits_qt_got_major_vers} lupdate${credits_qt_got_major_vers} lupdate],$qt_bin_path, yes)
 
-  MOC_DEFS='-DHAVE_CONFIG_H -I$(top_srcdir)/src'
+  MOC_DEFS='-DHAVE_CONFIG_H -I$(srcdir)'
   case $host in
     *darwin*)
      BITCOIN_QT_CHECK([
