@@ -1,4 +1,4 @@
-Bitcredit 0.9.99.0 BETA
+Bitcredit 0.9.1.20 BETA
 
 Copyright (c) 2013-2015 Bitcredit Core Developers
 
