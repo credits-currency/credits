@@ -168,39 +168,46 @@ public:
     // different types of claim activating methods
     void ActivateClaimable(const Bitcoin_CTransaction& tx) {
      	for (unsigned int i = 0; i < vout.size(); i++) {
-     		Bitcoin_CTxOut &txout = vout[i];
-			assert(txout.nValueOriginal >= 0 || tx.vout[i].scriptPubKey.IsUnspendable());
-     		txout.nValueClaimable = txout.nValueOriginal;
+     		if(!tx.vout[i].scriptPubKey.IsUnspendable()) {
+				Bitcoin_CTxOut &txout = vout[i];
+				assert(txout.nValueOriginal >= 0);
+
+				txout.nValueClaimable = txout.nValueOriginal;
+     		}
      	}
 
     	ClearUnspendable();
     }
     void ActivateClaimable(const Bitcoin_CTransactionCompressed& tx, const ClaimSum& claimSum) {
 		for (unsigned int i = 0; i < vout.size(); i++) {
-			Bitcoin_CTxOut & txout = vout[i];
+			if(tx.voutSpendable[i]) {
+				Bitcoin_CTxOut & txout = vout[i];
 
-			const int64_t nValue = txout.nValueOriginal;
-			const int64_t nValueClaimable = ReduceByFraction(nValue, claimSum.nValueClaimableSum, claimSum.nValueOriginalSum);
-			assert((nValueClaimable >= 0 && nValueClaimable <= nValue) || !tx.voutSpendable[i]);
+				const int64_t nValue = txout.nValueOriginal;
+				const int64_t nValueClaimable = ReduceByFraction(nValue, claimSum.nValueClaimableSum, claimSum.nValueOriginalSum);
+				assert((nValueClaimable >= 0 && nValueClaimable <= nValue));
 
-			txout.nValueClaimable = nValueClaimable;
+				txout.nValueClaimable = nValueClaimable;
+			}
 		}
 
     	ClearUnspendable();
     }
     void ActivateClaimableCoinbase(const Bitcoin_CTransactionCompressed& tx, const int64_t nTotalReduceFees, const int64_t& nTotalValueOut) {
 		for (unsigned int i = 0; i < vout.size(); i++) {
-			Bitcoin_CTxOut & txout = vout[i];
+			if(tx.voutSpendable[i]) {
+				Bitcoin_CTxOut & txout = vout[i];
 
-			const int64_t nValue = txout.nValueOriginal;
-			const int64_t nFractionReducedFee = ReduceByFraction(nTotalReduceFees, nValue, nTotalValueOut);
-			int64_t nValueClaimable = 0;
-			if(nValue > nFractionReducedFee) {
-				nValueClaimable = nValue - nFractionReducedFee;
+				const int64_t nValue = txout.nValueOriginal;
+				const int64_t nFractionReducedFee = ReduceByFraction(nTotalReduceFees, nValue, nTotalValueOut);
+				int64_t nValueClaimable = 0;
+				if(nValue > nFractionReducedFee) {
+					nValueClaimable = nValue - nFractionReducedFee;
+				}
+				assert((nValueClaimable >= 0 && nValueClaimable <= nValue));
+
+				txout.nValueClaimable = nValueClaimable;
 			}
-			assert((nValueClaimable >= 0 && nValueClaimable <= nValue) || !tx.voutSpendable[i]);
-
-			txout.nValueClaimable = nValueClaimable;
 		}
 
     	ClearUnspendable();
