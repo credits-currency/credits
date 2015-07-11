@@ -208,11 +208,7 @@ Value setgenerate(const Array& params, bool fHelp)
             fGenerate = false;
     }
 
-    bool coinbaseDepositDisabled = false;
-    if (params.size() > 2)
-    {
-    	coinbaseDepositDisabled = params[2].get_bool();
-    }
+    const bool coinbaseDepositDisabled = params.size() > 2 ? params[2].get_bool() : false;
 
     // -regtest mode: don't return until nGenProcLimit blocks are generated
     if (fGenerate && Credits_Params().NetworkID() == CChainParams::REGTEST)
@@ -590,11 +586,7 @@ Value getblocktemplate(const Array& params, bool fHelp)
         else
             throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid mode");
     }
-    bool coinbaseDepositDisabled = true;
-    if (params.size() > 1)
-    {
-        coinbaseDepositDisabled = params[1].get_bool();
-    }
+    const bool coinbaseDepositDisabled = params.size() > 1 ? params[1].get_bool() : false;
 
     if (strMode != "template")
         throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid mode");
