@@ -69,10 +69,6 @@ private:
 public:
     bool WriteBlockIndex(const Bitcoin_CDiskBlockIndex& blockindex);
     bool BatchWriteBlockIndex(std::vector<Bitcoin_CDiskBlockIndex>& vblockindexes);
-    bool WriteBlockCompressed(const Bitcoin_CBlockCompressed& blockCompressed);
-    bool BatchWriteBlocksCompressed(const std::vector<Bitcoin_CBlockCompressed>& vblocksCompressed);
-    bool ReadBlockCompressed(const uint256& blockHash, Bitcoin_CBlockCompressed& blockCompressed);
-    bool EraseBlockCompressed(const uint256& blockHash);
     bool ReadBlockFileInfo(int nFile, CBlockFileInfo &fileinfo);
     bool WriteBlockFileInfo(int nFile, const CBlockFileInfo &fileinfo);
     bool ReadLastBlockFile(int &nFile);
