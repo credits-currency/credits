@@ -102,6 +102,8 @@ extern bool bitcoin_fBenchmark;
 extern int bitcoin_nScriptCheckThreads;
 extern bool bitcoin_fTxIndex;
 extern bool bitcoin_fTrimBlockFiles;
+extern unsigned int bitcoin_nTrimBlockDepth;
+extern unsigned int credits_nTrimBlockDepth;
 extern bool bitcoin_fSimplifiedBlockValidation;
 extern unsigned int bitcoin_nCoinCacheSize;
 
