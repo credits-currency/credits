@@ -41,13 +41,14 @@ namespace Checkpoints
         boost::assign::map_list_of
         ( 0, uint256("0x00000000983b1b95f3b177e948e48591c939c17e8764cb72008ee0cf21308a45"))
         ( 7123, uint256("0x00000000170303448618e185c1c60702b1e1ea850db18d902d98c563a4e2209b"))
+        ( 28500, uint256("0x0000000000036c66f71ad4f6ab7d3e84e04adf0f9094d189b55f3aa84115bd74"))
         ;
     static const Bitcredit_CCheckpointData bitcredit_data = {
         &bitcredit_mapCheckpoints,
-		1428973422, // * UNIX timestamp of last checkpoint block
-        30000,   // * total number of transactions between genesis and last checkpoint
+        1438230997, // * UNIX timestamp of last checkpoint block
+        60000,   // * total number of transactions between genesis and last checkpoint
                     //   (the tx=... number in the SetBestChain debug.log lines)
-        1000.0     // * estimated number of transactions per day after checkpoint
+        400.0     // * estimated number of transactions per day after checkpoint
     };
 
     //TODO - Add checkpoints
