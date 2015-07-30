@@ -46,6 +46,8 @@ int bitcoin_nScriptCheckThreads = 0;
 bool bitcoin_fBenchmark = false;
 bool bitcoin_fTxIndex = false;
 bool bitcoin_fTrimBlockFiles = true;
+unsigned int bitcoin_nTrimBlockDepth = 500;
+unsigned int credits_nTrimBlockDepth = 500;
 bool bitcoin_fSimplifiedBlockValidation = true;
 unsigned int bitcoin_nCoinCacheSize = 5000;
 
@@ -2683,10 +2685,9 @@ bool Bitcoin_TrimBlockHistory(CValidationState &state) {
     AssertLockHeld(bitcoin_mainState.cs_main);
 
     if(bitcoin_fTrimBlockFiles) {
-		int trimFrequency = 500;
 		const Bitcoin_CBlockIndex * ptip = (Bitcoin_CBlockIndex*) bitcoin_chainActive.Tip();
-		if (ptip->nHeight > trimFrequency && ptip->nHeight % trimFrequency == 0) {
-			const Bitcoin_CBlockIndex * pTrimTo = bitcoin_chainActive[ptip->nHeight - trimFrequency];
+		if (ptip->nHeight > bitcoin_nTrimBlockDepth && ptip->nHeight % bitcoin_nTrimBlockDepth == 0) {
+			const Bitcoin_CBlockIndex * pTrimTo = bitcoin_chainActive[ptip->nHeight - bitcoin_nTrimBlockDepth];
 
 			const int nTrimToTime = pTrimTo->nTime;
 			const int nTrimToBlockFile = pTrimTo->nFile;
@@ -2762,11 +2763,9 @@ bool Bitcoin_TrimCompressedBlockHistory(CValidationState &state) {
     AssertLockHeld(bitcoin_mainState.cs_main);
 
     if(bitcoin_fTrimBlockFiles) {
-    	//Every 1000 blocks, trim the bitcoin block files
-		int trimFrequency = 500;
 		const Credits_CBlockIndex * ptip = (Credits_CBlockIndex*) credits_chainActive.Tip();
-		if (ptip->nHeight > trimFrequency && ptip->nHeight % trimFrequency == 0) {
-			const Credits_CBlockIndex * pTrimToCreditsBlock = credits_chainActive[ptip->nHeight - trimFrequency];
+		if (ptip->nHeight > credits_nTrimBlockDepth && ptip->nHeight % credits_nTrimBlockDepth == 0) {
+			const Credits_CBlockIndex * pTrimToCreditsBlock = credits_chainActive[ptip->nHeight - credits_nTrimBlockDepth];
 
 			std::map<uint256, Bitcoin_CBlockIndex*>::iterator mi = bitcoin_mapBlockIndex.find(pTrimToCreditsBlock->hashLinkedBitcoinBlock);
 			if (mi == bitcoin_mapBlockIndex.end()) {
