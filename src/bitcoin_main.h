@@ -56,6 +56,8 @@ static const unsigned int BITCOIN_DEFAULT_MAX_ORPHAN_BLOCKS = 750;
 static const unsigned int BITCOIN_MAX_BLOCKFILE_SIZE = 0x8000000; // 128 MiB
 /** The pre-allocation chunk size for blk?????.dat files (since 0.8) */
 static const unsigned int BITCOIN_BLOCKFILE_CHUNK_SIZE = 0x1000000; // 16 MiB
+/** The pre-allocation chunk size for cpr?????.dat files */
+static const unsigned int BITCOIN_COMPRESSEDFILE_CHUNK_SIZE = 0x100000; // 1 MiB
 /** The pre-allocation chunk size for rev?????.dat files (since 0.8) */
 static const unsigned int BITCOIN_UNDOFILE_CHUNK_SIZE = 0x100000; // 1 MiB
 /** Coinbase transaction outputs can only be spent after this number of new blocks (network rule) */
@@ -138,6 +140,8 @@ bool Bitcoin_ProcessBlock(CValidationState &state, CNode* pfrom, Bitcoin_CBlock*
 bool Bitcoin_CheckDiskSpace(uint64_t nAdditionalBytes = 0);
 /** Open a block file (blk?????.dat) */
 FILE* Bitcoin_OpenBlockFile(const CDiskBlockPos &pos, bool fReadOnly = false);
+/** Open a compressed block file (cpr?????.dat) */
+FILE* Bitcoin_OpenCompressedFile(const CDiskBlockPos &pos, bool fReadOnly = false);
 /** Open an undo file (rev?????.dat) */
 FILE* Bitcoin_OpenUndoFile(const CDiskBlockPos &pos, bool fReadOnly = false);
 /** Import blocks from an external file */
@@ -169,7 +173,7 @@ bool Bitcoin_GetTransaction(const uint256 &hash, Bitcoin_CTransaction &tx, uint2
 /** Find the best known block, and make it the tip of the block chain */
 bool Bitcoin_ActivateBestChain(CValidationState &state);
 /** Trim all old block files + undo files up to this block */
-bool Bitcoin_TrimBlockHistory();
+bool Bitcoin_TrimBlockHistory(CValidationState &state);
 bool Bitcoin_TrimCompressedBlockHistory(CValidationState &state);
 /** Move the position of the claim tip (a structure similar to chainstate + undo) */
 bool Bitcoin_AlignClaimTip(const Credits_CBlockIndex *expectedCurrentBlockIndex, const Credits_CBlockIndex *palignToBlockIndex, Bitcoin_CCoinsViewCache& view, CValidationState &state, bool updateUndo, std::vector<pair<Bitcoin_CBlockIndex*, Bitcoin_CBlockUndo> > &vBlockUndos);
@@ -255,6 +259,104 @@ bool Bitcoin_CheckTransaction(const Bitcoin_CTransaction& tx, CValidationState& 
 bool Bitcoin_IsStandardTx(const Bitcoin_CTransaction& tx, std::string& reason);
 
 bool Bitcoin_IsFinalTx(const Bitcoin_CTransaction &tx, int nBlockHeight = 0, int64_t nBlockTime = 0);
+
+class Bitcoin_CBlockCompressed
+{
+public:
+    unsigned int nTime;
+    std::vector<Bitcoin_CTransactionCompressed> vtx;
+
+    //Memory only, must be set on creation
+	uint256 blockHash;
+
+	Bitcoin_CBlockCompressed(const Bitcoin_CBlock &block)
+    {
+        SetNull();
+
+        nTime = block.nTime;
+        for (unsigned int i = 0; i < block.vtx.size(); i++) {
+    		vtx.push_back(Bitcoin_CTransactionCompressed(block.vtx[i], i == 0));
+    	}
+        blockHash = block.GetHash();
+    }
+
+    Bitcoin_CBlockCompressed()
+    {
+        SetNull();
+    }
+
+    IMPLEMENT_SERIALIZE
+    (
+        READWRITE(nTime);
+        READWRITE(vtx);
+    )
+
+    void SetNull()
+    {
+    	nTime = 0;
+    	blockHash = uint256(0);
+        vtx.clear();
+    }
+
+    uint256 GetHash() const
+    {
+        return blockHash;
+    }
+    bool WriteToDisk(FILE * writeToFile, CDiskBlockPos &pos, const uint256 &hashBlock, CNetParams * netParams)
+    {
+        // Open history file to append
+        CAutoFile fileout = CAutoFile(writeToFile, SER_DISK, netParams->ClientVersion());
+        if (!fileout)
+            return error("Bitcoin: Bitcoin_CBlockCompressed::WriteToDisk : OpenFile failed");
+
+        // Write index header
+        unsigned int nSize = fileout.GetSerializeSize(*this);
+        fileout << FLATDATA(netParams->MessageStart()) << nSize;
+
+        // Write compressed block
+        long fileOutPos = ftell(fileout);
+        if (fileOutPos < 0)
+            return error("Bitcoin: Bitcoin_CBlockCompressed::WriteToDisk : ftell failed");
+        pos.nPos = (unsigned int)fileOutPos;
+        fileout << *this;
+
+        // write hash
+        fileout << hashBlock;
+
+        // Flush stdio buffers and commit to disk before returning
+        fflush(fileout);
+        if (!Bitcoin_IsInitialBlockDownload())
+            FileCommit(fileout);
+
+        return true;
+    }
+
+    bool ReadFromDisk(FILE * readFromFile, const CDiskBlockPos &pos, const uint256 &hashBlock, CNetParams * netParams)
+    {
+        // Open history file to read
+        CAutoFile filein = CAutoFile(readFromFile, SER_DISK, netParams->ClientVersion());
+        if (!filein)
+            return error("Bitcoin: Bitcoin_CBlockCompressed::ReadFromDisk : OpenBlockFile failed");
+
+        // Read block
+        uint256 hashChecksum;
+        try {
+            filein >> *this;
+            filein >> hashChecksum;
+        }
+        catch (std::exception &e) {
+            return error("Bitcoin: %s : Deserialize or I/O error - %s", __func__, e.what());
+        }
+
+        // Verify hash
+        if (hashChecksum != hashBlock)
+            return error("Bitcoin: Bitcoin_CBlockCompressed::ReadFromDisk : hash mismatch");
+
+        blockHash = hashBlock;
+
+        return true;
+    }
+};
 
 /** Undo information for a CBlock */
 class Bitcoin_CBlockUndo
@@ -460,6 +562,9 @@ bool Bitcoin_AcceptBlockHeader(Bitcoin_CBlockHeader& block, CValidationState& st
 class Bitcoin_CBlockIndex : public CBlockIndexBase
 {
 public:
+    // Byte offset within cpr?????.dat where this block's compressed data is stored
+    unsigned int nCompressedPos;
+
     // block header
     int nVersion;
     uint256 hashMerkleRoot;
@@ -475,6 +580,7 @@ public:
         nHeight = 0;
         nFile = 0;
         nDataPos = 0;
+        nCompressedPos = 0;
         nUndoPos = 0;
         nChainWork = 0;
         nTx = 0;
@@ -496,6 +602,7 @@ public:
         nHeight = 0;
         nFile = 0;
         nDataPos = 0;
+        nCompressedPos = 0;
         nUndoPos = 0;
         nChainWork = 0;
         nTx = 0;
@@ -515,6 +622,15 @@ public:
         if (nStatus & BLOCK_HAVE_DATA) {
             ret.nFile = nFile;
             ret.nPos  = nDataPos;
+        }
+        return ret;
+    }
+
+    CDiskBlockPos GetCompressedPos() const {
+        CDiskBlockPos ret;
+        if (nStatus & BLOCK_HAVE_COMPRESSED) {
+            ret.nFile = nFile;
+            ret.nPos  = nCompressedPos;
         }
         return ret;
     }
@@ -630,10 +746,12 @@ public:
         READWRITE(VARINT(nHeight));
         READWRITE(VARINT(nStatus));
         READWRITE(VARINT(nTx));
-        if (nStatus & (BLOCK_HAVE_DATA | BLOCK_HAVE_UNDO))
+        if (nStatus & (BLOCK_HAVE_DATA | BLOCK_HAVE_UNDO | BLOCK_HAVE_COMPRESSED))
             READWRITE(VARINT(nFile));
         if (nStatus & BLOCK_HAVE_DATA)
             READWRITE(VARINT(nDataPos));
+        if (nStatus & BLOCK_HAVE_COMPRESSED)
+            READWRITE(VARINT(nCompressedPos));
         if (nStatus & BLOCK_HAVE_UNDO)
             READWRITE(VARINT(nUndoPos));
 

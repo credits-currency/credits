@@ -605,44 +605,6 @@ public:
     void print() const;
 };
 
-class Bitcoin_CBlockCompressed
-{
-public:
-    std::vector<Bitcoin_CTransactionCompressed> vtx;
 
-    //Memory only, must be set on creation
-	uint256 blockHash;
-
-	Bitcoin_CBlockCompressed(const Bitcoin_CBlock &block)
-    {
-        SetNull();
-
-        for (unsigned int i = 0; i < block.vtx.size(); i++) {
-    		vtx.push_back(Bitcoin_CTransactionCompressed(block.vtx[i], i == 0));
-    	}
-        blockHash = block.GetHash();
-    }
-
-    Bitcoin_CBlockCompressed()
-    {
-        SetNull();
-    }
-
-    IMPLEMENT_SERIALIZE
-    (
-        READWRITE(vtx);
-    )
-
-    void SetNull()
-    {
-    	blockHash = uint256(0);
-        vtx.clear();
-    }
-
-    uint256 GetHash() const
-    {
-        return blockHash;
-    }
-};
 
 #endif
