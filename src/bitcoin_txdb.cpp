@@ -136,33 +136,6 @@ bool Bitcoin_CBlockTreeDB::BatchWriteBlockIndex(std::vector<Bitcoin_CDiskBlockIn
     }
     return WriteBatch(batch);
 }
-bool Bitcoin_CBlockTreeDB::WriteBlockCompressed(const Bitcoin_CBlockCompressed& blockCompressed)
-{
-    return Write(make_pair('h', blockCompressed.GetHash()), blockCompressed);
-}
-bool Bitcoin_CBlockTreeDB::BatchWriteBlocksCompressed(const std::vector<Bitcoin_CBlockCompressed>& vblocksCompressed)
-{
-    CLevelDBBatch batch;
-    for (unsigned int i = 0; i < vblocksCompressed.size(); i++) {
-    	const Bitcoin_CBlockCompressed &blockCompressed = vblocksCompressed[i];
-    	batch.Write(make_pair('h', blockCompressed.GetHash()), blockCompressed);
-    }
-    return WriteBatch(batch);
-}
-bool Bitcoin_CBlockTreeDB::ReadBlockCompressed(const uint256 &blockHash, Bitcoin_CBlockCompressed& blockCompressed) {
-    bool ret = Read(make_pair('h', blockHash), blockCompressed);
-    if(ret) {
-    	blockCompressed.blockHash = blockHash;
-        for (unsigned int i = 0; i < blockCompressed.vtx.size(); i++) {
-        	blockCompressed.vtx[i].isCoinBase = (i == 0);
-        }
-    }
-
-    return ret;
-}
-bool Bitcoin_CBlockTreeDB::EraseBlockCompressed(const uint256& blockHash) {
-    return Erase(make_pair('h', blockHash));
-}
 
 bool Bitcoin_CBlockTreeDB::WriteBlockFileInfo(int nFile, const CBlockFileInfo &info) {
     return Write(make_pair('f', nFile), info);
@@ -271,6 +244,7 @@ bool Bitcoin_CBlockTreeDB::LoadBlockIndexGuts()
                 pindexNew->nHeight        = diskindex.nHeight;
                 pindexNew->nFile          = diskindex.nFile;
                 pindexNew->nDataPos       = diskindex.nDataPos;
+                pindexNew->nCompressedPos       = diskindex.nCompressedPos;
                 pindexNew->nUndoPos       = diskindex.nUndoPos;
                 pindexNew->nUndoPosClaim       = diskindex.nUndoPosClaim;
                 pindexNew->nVersion       = diskindex.nVersion;

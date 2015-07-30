@@ -195,7 +195,7 @@ public:
         nSize += ::GetSerializeSize(VARINT(this->nVersion), nType, nVersion);
         nVersion = this->nVersion;
         nSize += ::GetSerializeSize(txHash, nType, nVersion);
-        const uint64_t nValOut = Bitcoin_CTxOutCompressor::CompressAmount(valueOut);
+        const uint64_t nValOut = CTxOutCompressor::CompressAmount(valueOut);
         nSize += ::GetSerializeSize(VARINT(nValOut), nType, nVersion);
         nSize += ::GetSerializeSize(vin, nType, nVersion);
     	//Size indicator
@@ -212,7 +212,7 @@ public:
         ::Serialize(s, VARINT(this->nVersion), nType, nVersion);
         nVersion = this->nVersion;
         ::Serialize(s, txHash, nType, nVersion);
-        const uint64_t nValOut = Bitcoin_CTxOutCompressor::CompressAmount(valueOut);
+        const uint64_t nValOut = CTxOutCompressor::CompressAmount(valueOut);
         ::Serialize(s, VARINT(nValOut), nType, nVersion);
         ::Serialize(s, vin, nType, nVersion);
     	//Size indicator
@@ -236,7 +236,7 @@ public:
         ::Unserialize(s, txHash, nType, nVersion);
         uint64_t nValOut = 0;
         ::Unserialize(s, VARINT(nValOut), nType, nVersion);
-        valueOut = Bitcoin_CTxOutCompressor::DecompressAmount(nValOut);
+        valueOut = CTxOutCompressor::DecompressAmount(nValOut);
         ::Unserialize(s, vin, nType, nVersion);
     	//Size indicator
     	unsigned int nSpendableSize = 0;
@@ -520,44 +520,6 @@ public:
     void print() const;
 };
 
-class Bitcoin_CBlockCompressed
-{
-public:
-    std::vector<Bitcoin_CTransactionCompressed> vtx;
 
-    //Memory only, must be set on creation
-	uint256 blockHash;
-
-	Bitcoin_CBlockCompressed(const Bitcoin_CBlock &block)
-    {
-        SetNull();
-
-        for (unsigned int i = 0; i < block.vtx.size(); i++) {
-    		vtx.push_back(Bitcoin_CTransactionCompressed(block.vtx[i], i == 0));
-    	}
-        blockHash = block.GetHash();
-    }
-
-    Bitcoin_CBlockCompressed()
-    {
-        SetNull();
-    }
-
-    IMPLEMENT_SERIALIZE
-    (
-        READWRITE(vtx);
-    )
-
-    void SetNull()
-    {
-    	blockHash = uint256(0);
-        vtx.clear();
-    }
-
-    uint256 GetHash() const
-    {
-        return blockHash;
-    }
-};
 
 #endif

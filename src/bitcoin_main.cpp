@@ -1925,6 +1925,14 @@ void static Bitcoin_FlushBlockFile(bool fFinalize = false)
         fclose(fileOld);
     }
 
+    fileOld = Bitcoin_OpenCompressedFile(posOld);
+    if (fileOld) {
+        if (fFinalize)
+            TruncateFile(fileOld, bitcoin_mainState.infoLastBlockFile.nSizeCompressed);
+        FileCommit(fileOld);
+        fclose(fileOld);
+    }
+
     fileOld = Bitcoin_OpenUndoFile(posOld);
     if (fileOld) {
         if (fFinalize)
@@ -1945,12 +1953,25 @@ void static Bitcoin_FlushBlockFile(bool fFinalize = false)
 
 bool Bitcoin_FindUndoPos(MainState& mainState, CValidationState &state, int nFile, CDiskBlockPos &pos, unsigned int nAddSize);
 bool Bitcoin_FindUndoPosClaim(MainState& mainState, CValidationState &state, int nFile, CDiskBlockPos &pos, unsigned int nAddSize);
+bool Bitcoin_FindCompressedPos(MainState& mainState, CValidationState &state, int nFile, CDiskBlockPos &pos, unsigned int nAddSize);
 
 static CCheckQueue<Bitcoin_CScriptCheck> bitcoin_scriptcheckqueue(128);
 
 void Bitcoin_ThreadScriptCheck() {
     RenameThread("bitcoin_bitcoin-scriptch");
     bitcoin_scriptcheckqueue.Thread();
+}
+
+bool Bitcoin_WriteBlockCompressedToDisk(CValidationState& state, Bitcoin_CBlockIndex* pindex, Bitcoin_CBlockCompressed& blockcompressed) {
+	CDiskBlockPos pos;
+	if (!Bitcoin_FindCompressedPos(bitcoin_mainState, state, pindex->nFile, pos, ::GetSerializeSize(blockcompressed, SER_DISK, Bitcoin_Params().ClientVersion()) + 40))
+		return error("Bitcoin: Bitcoin_WriteBlockCompressedToDisk() : FindCompressedPos failed");
+	if (!blockcompressed.WriteToDisk(Bitcoin_OpenCompressedFile(pos), pos, pindex->GetBlockHash(), Bitcoin_NetParams()))
+		return state.Abort(_("Failed to write compressed data"));
+
+	pindex->nCompressedPos = pos.nPos;
+	pindex->nStatus |= BLOCK_HAVE_COMPRESSED;
+	return true;
 }
 
 bool Bitcoin_WriteBlockUndoToDisk(CValidationState& state, Bitcoin_CBlockIndex* pindex, Bitcoin_CBlockUndo& blockundo) {
@@ -2400,21 +2421,31 @@ bool static Bitcoin_DisconnectTip(CValidationState &state) {
     return true;
 }
 
-bool static Bitcoin_DisconnectTipForClaim(CValidationState &state, Credits_CCoinsViewCache& view, Bitcoin_CBlockIndex *pindex, bool updateUndo, std::vector<pair<Bitcoin_CBlockIndex*, Bitcoin_CBlockUndoClaim> > &vBlockUndoClaims) {
-    // Read block from disk.
-	Bitcoin_CBlockCompressed blockCompressed;
-	//If Bitcoin block files have been trimmed, info about the trimmmed blocks will be found in level db
+bool ReadBitcoinBlockToCompressed(CValidationState &state, Bitcoin_CBlockIndex *pindex, Bitcoin_CBlockCompressed& blockCompressed) {
+	bool compressedBlockFound = false;
 	if(bitcoin_fTrimBlockFiles) {
-	    if(!bitcoin_pblocktree->ReadBlockCompressed(pindex->GetBlockHash(), blockCompressed))
-	        return state.Abort(_("Claim: Failed to read block"));
-    } else {
+		const CDiskBlockPos pos = pindex->GetCompressedPos();
+	    if (!pos.IsNull() && blockCompressed.ReadFromDisk(Bitcoin_OpenCompressedFile(pos, true), pos, pindex->GetBlockHash(), Bitcoin_NetParams())) {
+	    	blockCompressed.vtx[0].isCoinBase = true;
+	    	compressedBlockFound = true;
+	    }
+    }
+	if(!compressedBlockFound) {
     	// Read block from disk.
         Bitcoin_CBlock block;
         if (!Bitcoin_ReadBlockFromDisk(block, pindex))
-            return state.Abort(_("Failed to read block"));
-
+            return state.Abort(_("Claim: Failed to read block"));
 		blockCompressed = Bitcoin_CBlockCompressed(block);
     }
+	return true;
+}
+
+bool static Bitcoin_DisconnectTipForClaim(CValidationState &state, Credits_CCoinsViewCache& view, Bitcoin_CBlockIndex *pindex, bool updateUndo, std::vector<pair<Bitcoin_CBlockIndex*, Bitcoin_CBlockUndoClaim> > &vBlockUndoClaims) {
+    // Read block from disk.
+	Bitcoin_CBlockCompressed blockCompressed;
+	if(!ReadBitcoinBlockToCompressed(state, pindex, blockCompressed)) {
+		return state.Abort(_("Bitcoin_DisconnectTipForClaim: Failed to read compressed block"));
+	}
 
     int64_t nStart = GetTimeMicros();
     {
@@ -2427,7 +2458,7 @@ bool static Bitcoin_DisconnectTipForClaim(CValidationState &state, Credits_CCoin
     return true;
 }
 
-bool Bitcoin_CheckTrimBlockFile(FILE* fileIn, const int nTrimToTime)
+bool Bitcoin_CheckTrimBlockFile(CValidationState &state, FILE* fileIn, const int nTrimToTime, bool& trimBlockFile, bool& fastForwardClaimStateForAll)
 {
     int64_t nStart = GetTimeMillis();
 
@@ -2467,10 +2498,20 @@ bool Bitcoin_CheckTrimBlockFile(FILE* fileIn, const int nTrimToTime)
                 blkdat >> block;
                 nRewind = blkdat.GetPos();
 
+                if(fastForwardClaimStateForAll) {
+					Bitcoin_CBlockIndex *pindex = bitcoin_mapBlockIndex.find(block.GetHash())->second;
+					if(pindex == NULL)
+						return state.Abort(_("Failed to find block index"));
+					if(!FastForwardClaimStateFor(pindex->nHeight, pindex->GetBlockHash())) {
+						fastForwardClaimStateForAll = false;
+					}
+                }
+
                 // check block
                 if (nBlockPos >= nStartByte) {
                 	if(block.nTime >= nTrimToTime) {
-                		return false;
+                		trimBlockFile = false;
+                		return true;
                 	}
                     nLoaded++;
                 }
@@ -2484,17 +2525,165 @@ bool Bitcoin_CheckTrimBlockFile(FILE* fileIn, const int nTrimToTime)
     }
     if (nLoaded > 0) {
         LogPrintf("Bitcoin: Loaded %i blocks from file in %dms\n", nLoaded, GetTimeMillis() - nStart);
-		return true;
+        trimBlockFile = true;
     } else {
-    	return false;
+    	trimBlockFile = false;
     }
+    return true;
 }
 
-bool Bitcoin_TrimBlockHistory() {
+bool Bitcoin_CheckTrimCompressedFile(CValidationState &state, FILE* fileIn, const int nTrimToTime, bool& trimBlockFile)
+{
+    int64_t nStart = GetTimeMillis();
+
+    int nLoaded = 0;
+    try {
+        CBufferedFile blkdat(fileIn, 2*BITCOIN_MAX_BLOCK_SIZE, BITCOIN_MAX_BLOCK_SIZE+8, SER_DISK, Bitcoin_Params().ClientVersion());
+        uint64_t nStartByte = 0;
+        uint64_t nRewind = blkdat.GetPos();
+        while (blkdat.good() && !blkdat.eof()) {
+            boost::this_thread::interruption_point();
+
+            blkdat.SetPos(nRewind);
+            nRewind++; // start one byte further next time, in case of failure
+            blkdat.SetLimit(); // remove former limit
+            unsigned int nSize = 0;
+            try {
+                // locate a header
+                unsigned char buf[MESSAGE_START_SIZE];
+                blkdat.FindByte(Bitcoin_Params().MessageStart()[0]);
+                nRewind = blkdat.GetPos()+1;
+                blkdat >> FLATDATA(buf);
+                if (memcmp(buf, Bitcoin_Params().MessageStart(), MESSAGE_START_SIZE))
+                    continue;
+                // read size
+                blkdat >> nSize;
+                if (nSize < 80 || nSize > BITCOIN_MAX_BLOCK_SIZE)
+                    continue;
+            } catch (std::exception &e) {
+                // no valid block header found; don't complain
+                break;
+            }
+            try {
+                // read block
+                uint64_t nBlockPos = blkdat.GetPos();
+                blkdat.SetLimit(nBlockPos + nSize);
+                Bitcoin_CBlockCompressed block;
+                blkdat >> block;
+
+                //Read hash stored after compressedBlock
+                uint256 throwAwayHash;
+                blkdat >> throwAwayHash;
+
+                nRewind = blkdat.GetPos();
+
+                // check block
+                if (nBlockPos >= nStartByte) {
+                	if(block.nTime >= nTrimToTime) {
+                		trimBlockFile = false;
+                		return true;
+                	}
+                    nLoaded++;
+                }
+            } catch (std::exception &e) {
+                LogPrintf("Bitcoin: %s : Deserialize or I/O error - %s", __func__, e.what());
+            }
+        }
+        fclose(fileIn);
+    } catch(std::runtime_error &e) {
+        AbortNode(_("Error: system error: ") + e.what());
+    }
+    if (nLoaded > 0) {
+        LogPrintf("Bitcoin: Loaded %i compressed blocks from file in %dms\n", nLoaded, GetTimeMillis() - nStart);
+        trimBlockFile = true;
+    } else {
+    	trimBlockFile = false;
+    }
+    return true;
+}
+bool Bitcoin_CreateCompressedBlockFile(CValidationState &state, const CDiskBlockPos &pos)
+{
+    if(bitcoin_fTrimBlockFiles) {
+		FILE *fileIn = Bitcoin_OpenBlockFile(pos, true);
+		int64_t nStart = GetTimeMillis();
+
+		int nLoaded = 0;
+		try {
+			CBufferedFile blkdat(fileIn, 2*BITCOIN_MAX_BLOCK_SIZE, BITCOIN_MAX_BLOCK_SIZE+8, SER_DISK, Bitcoin_Params().ClientVersion());
+			uint64_t nStartByte = 0;
+			uint64_t nRewind = blkdat.GetPos();
+			while (blkdat.good() && !blkdat.eof()) {
+				boost::this_thread::interruption_point();
+
+				blkdat.SetPos(nRewind);
+				nRewind++; // start one byte further next time, in case of failure
+				blkdat.SetLimit(); // remove former limit
+				unsigned int nSize = 0;
+				try {
+					// locate a header
+					unsigned char buf[MESSAGE_START_SIZE];
+					blkdat.FindByte(Bitcoin_Params().MessageStart()[0]);
+					nRewind = blkdat.GetPos()+1;
+					blkdat >> FLATDATA(buf);
+					if (memcmp(buf, Bitcoin_Params().MessageStart(), MESSAGE_START_SIZE))
+						continue;
+					// read size
+					blkdat >> nSize;
+					if (nSize < 80 || nSize > BITCOIN_MAX_BLOCK_SIZE)
+						continue;
+				} catch (std::exception &e) {
+					// no valid block header found; don't complain
+					break;
+				}
+				try {
+					// read block
+					uint64_t nBlockPos = blkdat.GetPos();
+					blkdat.SetLimit(nBlockPos + nSize);
+					Bitcoin_CBlock block;
+					blkdat >> block;
+					nRewind = blkdat.GetPos();
+
+					// check block
+					if (nBlockPos >= nStartByte) {
+						Bitcoin_CBlockIndex *pindex = bitcoin_mapBlockIndex.find(block.GetHash())->second;
+						if(pindex == NULL)
+							return state.Abort(_("Failed to find block index"));
+
+						Bitcoin_CBlockCompressed blockCompressed(block);
+						if(!Bitcoin_WriteBlockCompressedToDisk(state, pindex, blockCompressed)) {
+							return state.Abort(_("Bitcoin: Failed to write block compressed data"));
+						}
+
+						Bitcoin_CDiskBlockIndex blockindex(pindex);
+						if (!bitcoin_pblocktree->WriteBlockIndex(blockindex))
+							return state.Abort(_("Failed to write block index"));
+
+						nLoaded++;
+					}
+				} catch (std::exception &e) {
+					LogPrintf("Bitcoin: %s : Deserialize or I/O error - %s", __func__, e.what());
+				}
+			}
+			fclose(fileIn);
+		} catch(std::runtime_error &e) {
+			AbortNode(_("Error: system error: ") + e.what());
+		}
+		if (nLoaded > 0) {
+			LogPrintf("Bitcoin: Compressed %i blocks from file in %dms\n", nLoaded, GetTimeMillis() - nStart);
+			return true;
+		} else {
+			return false;
+		}
+    }
+    return true;
+}
+
+
+bool Bitcoin_TrimBlockHistory(CValidationState &state) {
     AssertLockHeld(bitcoin_mainState.cs_main);
 
     if(bitcoin_fTrimBlockFiles) {
-		int trimFrequency = 1000;
+		int trimFrequency = 500;
 		const Bitcoin_CBlockIndex * ptip = (Bitcoin_CBlockIndex*) bitcoin_chainActive.Tip();
 		if (ptip->nHeight > trimFrequency && ptip->nHeight % trimFrequency == 0) {
 			const Bitcoin_CBlockIndex * pTrimTo = bitcoin_chainActive[ptip->nHeight - trimFrequency];
@@ -2512,10 +2701,99 @@ bool Bitcoin_TrimBlockHistory() {
 					continue;
 				LogPrintf("Bitcoin: Scanning block file blk%05u.dat for trimming...\n", (unsigned int)nFile);
 
-				if(Bitcoin_CheckTrimBlockFile(fileTrim, nTrimToTime)) {
+				bool trimBlockFile = false;
+				bool fastForwardClaimStateForAll = true;
+				if(!Bitcoin_CheckTrimBlockFile(state, fileTrim, nTrimToTime, trimBlockFile, fastForwardClaimStateForAll)) {
+					return error("Bitcoin: ConnectTip() : Could not compress block history!");
+				}
+				if(trimBlockFile) {
 					LogPrintf("Bitcoin: Trimming file blk%05u.dat...\n", (unsigned int)nFile);
 
+					if(!fastForwardClaimStateForAll) {
+						if (!Bitcoin_CreateCompressedBlockFile(state, pos)) {
+							return error("Bitcoin: ConnectTip() : Could not compress block history!");
+						}
+					}
+
 					fileTrim = Bitcoin_OpenBlockFile(pos);
+					if (fileTrim) {
+						if(!TruncateFile(fileTrim, 0)) {
+							return false;
+						}
+						FileCommit(fileTrim);
+						fclose(fileTrim);
+					}
+
+					//Trim the undo files if we are verified in a fast forward claim state
+					if(fastForwardClaimStateForAll) {
+						fileTrim = Bitcoin_OpenUndoFile(pos);
+						if (fileTrim) {
+							if(!TruncateFile(fileTrim, 0)) {
+								return false;
+							}
+							FileCommit(fileTrim);
+							fclose(fileTrim);
+						}
+					}
+
+					//TODO - Do both sections below belong here?
+
+					//TODO - This should probably move to compressed trim
+					fileTrim = Bitcoin_OpenUndoFileClaim(pos);
+					if (fileTrim) {
+						TruncateFile(fileTrim, 0);
+						FileCommit(fileTrim);
+						fclose(fileTrim);
+					}
+
+					//TODO - This is left over functionality currently used to handle switching from non-trimmed to trimmed blockchain
+					bitcoin_mainState.nTrimToTime = pTrimTo->nTime;
+					bitcoin_pblocktree->WriteTrimToTime(bitcoin_mainState.nTrimToTime);
+				}
+				nFile++;
+			}
+		}
+    }
+
+	return true;
+}
+
+bool Bitcoin_TrimCompressedBlockHistory(CValidationState &state) {
+    AssertLockHeld(bitcoin_mainState.cs_main);
+
+    if(bitcoin_fTrimBlockFiles) {
+    	//Every 1000 blocks, trim the bitcoin block files
+		int trimFrequency = 500;
+		const Credits_CBlockIndex * ptip = (Credits_CBlockIndex*) credits_chainActive.Tip();
+		if (ptip->nHeight > trimFrequency && ptip->nHeight % trimFrequency == 0) {
+			const Credits_CBlockIndex * pTrimToCreditsBlock = credits_chainActive[ptip->nHeight - trimFrequency];
+
+			std::map<uint256, Bitcoin_CBlockIndex*>::iterator mi = bitcoin_mapBlockIndex.find(pTrimToCreditsBlock->hashLinkedBitcoinBlock);
+			if (mi == bitcoin_mapBlockIndex.end()) {
+		        return state.Abort(strprintf(_("Referenced claim bitcoin block %s can not be found"), pTrimToCreditsBlock->hashLinkedBitcoinBlock.ToString()));
+		    }
+			const Bitcoin_CBlockIndex* pTrimTo = (*mi).second;
+
+			const int nTrimToTime = pTrimTo->nTime;
+			const int nTrimToBlockFile = pTrimTo->nFile;
+			int nFile = 0;
+			while (true) {
+				if(nFile >= nTrimToBlockFile)
+					break;
+				CDiskBlockPos pos(nFile, 0);
+				FILE *fileTrim = Bitcoin_OpenCompressedFile(pos, true);
+				if (!fileTrim)
+					continue;
+				LogPrintf("Bitcoin: Scanning compressed file crp%05u.dat for trimming...\n", (unsigned int)nFile);
+
+				bool trimBlockFile = false;
+				if(!Bitcoin_CheckTrimCompressedFile(state, fileTrim, nTrimToTime, trimBlockFile)) {
+					return error("Bitcoin: ConnectTip() : Could not trim compressed block history!");
+				}
+				if(trimBlockFile) {
+					LogPrintf("Bitcoin: Trimming file crp%05u.dat...\n", (unsigned int)nFile);
+
+					fileTrim = Bitcoin_OpenCompressedFile(pos);
 					if (fileTrim) {
 						if(!TruncateFile(fileTrim, 0)) {
 							return false;
@@ -2532,53 +2810,9 @@ bool Bitcoin_TrimBlockHistory() {
 						FileCommit(fileTrim);
 						fclose(fileTrim);
 					}
-
-					//TODO - This should probably move to compressed trim
-					fileTrim = Bitcoin_OpenUndoFileClaim(pos);
-					if (fileTrim) {
-						TruncateFile(fileTrim, 0);
-						FileCommit(fileTrim);
-						fclose(fileTrim);
-					}
 				}
 				nFile++;
 			}
-		}
-    }
-
-	return true;
-}
-
-bool Bitcoin_TrimCompressedBlockHistory(CValidationState &state) {
-    AssertLockHeld(bitcoin_mainState.cs_main);
-
-    if(bitcoin_fTrimBlockFiles) {
-    	//Every 1000 blocks, trim the bitcoin block files
-		int trimFrequency = 1000;
-		const Credits_CBlockIndex * ptip = (Credits_CBlockIndex*) credits_chainActive.Tip();
-		if (ptip->nHeight > trimFrequency && ptip->nHeight % trimFrequency == 0) {
-			const Credits_CBlockIndex * pTrimToCreditsBlock = credits_chainActive[ptip->nHeight - trimFrequency];
-
-			std::map<uint256, Bitcoin_CBlockIndex*>::iterator mi = bitcoin_mapBlockIndex.find(pTrimToCreditsBlock->hashLinkedBitcoinBlock);
-			if (mi == bitcoin_mapBlockIndex.end()) {
-		        return state.Abort(strprintf(_("Referenced claim bitcoin block %s can not be found"), pTrimToCreditsBlock->hashLinkedBitcoinBlock.ToString()));
-		    }
-			const Bitcoin_CBlockIndex* pTrimToCompressed = (*mi).second;
-
-			//TODO - Make as batch update for efficiency
-			//Walk all the way from trim to old trim to time, with some margin
-			int nTrimBackToTime = bitcoin_mainState.nTrimToTime - 24*60*60;
-			if(nTrimBackToTime < 0) {
-				nTrimBackToTime = 0;
-			}
-			const Bitcoin_CBlockIndex * pindex = pTrimToCompressed;
-			while(pindex != NULL && pindex->nTime >= nTrimBackToTime) {
-				bitcoin_pblocktree->EraseBlockCompressed(pindex->GetBlockHash());
-				pindex = (Bitcoin_CBlockIndex *) pindex->pprev;
-			}
-
-			bitcoin_mainState.nTrimToTime = pTrimToCompressed->nTime;
-			bitcoin_pblocktree->WriteTrimToTime(bitcoin_mainState.nTrimToTime);
 		}
     }
 
@@ -2641,7 +2875,7 @@ bool static Bitcoin_ConnectTip(CValidationState &state, Bitcoin_CBlockIndex *pin
     Bitcoin_UpdateTip(pindexNew);
 
     if(fastForwardClaimState) {
-    	if (!Bitcoin_TrimBlockHistory()) {
+    	if (!Bitcoin_TrimBlockHistory(state)) {
     		return error("Bitcoin: ConnectTip() : Could not trim block history!");
     	}
     }
@@ -2661,19 +2895,9 @@ bool static Bitcoin_ConnectTip(CValidationState &state, Bitcoin_CBlockIndex *pin
 // Everything is finalized from Bitcredit_Connect/DisconnectBlock
 bool static Bitcoin_ConnectTipForClaim(CValidationState &state, Credits_CCoinsViewCache& view, Bitcoin_CBlockIndex *pindex, bool updateUndo, std::vector<pair<Bitcoin_CBlockIndex*, Bitcoin_CBlockUndoClaim> > &vBlockUndoClaims) {
     // Read block from disk.
-   Bitcoin_CBlockCompressed blockCompressed;
-	//If Bitcoin block files have been trimmed, info about the trimmmed blocks will be found in level db
-	if(bitcoin_fTrimBlockFiles) {
-		if(!bitcoin_pblocktree->ReadBlockCompressed(pindex->GetBlockHash(), blockCompressed))
-			return state.Abort(_("Claim: Failed to read block"));
-	} else {
-		// Read block from disk.
-		Bitcoin_CBlock block;
-		if (!Bitcoin_ReadBlockFromDisk(block, pindex))
-			return state.Abort(_("Claim: Failed to read block"));
-		//Must be run to setup the merkle tree
-		block.BuildMerkleTree();
-		blockCompressed = Bitcoin_CBlockCompressed(block);
+	Bitcoin_CBlockCompressed blockCompressed;
+	if(!ReadBitcoinBlockToCompressed(state, pindex, blockCompressed)) {
+		return state.Abort(_("Bitcoin_ConnectTipForClaim: Failed to read compressed block"));
 	}
 
     // Apply the block atomically to the chain state.
@@ -2982,6 +3206,7 @@ bool Bitcoin_ReceivedBlockTransactions(const Bitcoin_CBlock &block, CValidationS
     }
     pindexNew->nFile = pos.nFile;
     pindexNew->nDataPos = pos.nPos;
+    pindexNew->nCompressedPos = 0;
     pindexNew->nUndoPos = 0;
     pindexNew->nUndoPosClaim = 0;
     pindexNew->nStatus |= BLOCK_HAVE_DATA;
@@ -2993,12 +3218,6 @@ bool Bitcoin_ReceivedBlockTransactions(const Bitcoin_CBlock &block, CValidationS
 
     if (!bitcoin_pblocktree->WriteBlockIndex(diskIndexNew))
         return state.Abort(_("Failed to write block index"));
-
-	if(bitcoin_fTrimBlockFiles) {
-		Bitcoin_CBlockCompressed blockCompressed(block);
-		if (!bitcoin_pblocktree->WriteBlockCompressed(blockCompressed))
-			return state.Abort(_("Failed to write block tx hashes"));
-	}
 
     // New best?
     if (!Bitcoin_ActivateBestChain(state))
@@ -3075,6 +3294,46 @@ bool Bitcoin_FindBlockPos(CValidationState &state, CDiskBlockPos &pos, unsigned 
         return state.Abort(_("Failed to write file info"));
     if (fUpdatedLast)
         bitcoin_pblocktree->WriteLastBlockFile(bitcoin_mainState.nLastBlockFile);
+
+    return true;
+}
+
+bool Bitcoin_FindCompressedPos(MainState& mainState, CValidationState &state, int nFile, CDiskBlockPos &pos, unsigned int nAddSize)
+{
+    pos.nFile = nFile;
+
+    LOCK(mainState.cs_LastBlockFile);
+
+    unsigned int nNewSize;
+    if (nFile == mainState.nLastBlockFile) {
+        pos.nPos = mainState.infoLastBlockFile.nSizeCompressed;
+        nNewSize = (mainState.infoLastBlockFile.nSizeCompressed += nAddSize);
+        if (!bitcoin_pblocktree->WriteBlockFileInfo(mainState.nLastBlockFile, mainState.infoLastBlockFile))
+            return state.Abort(_("Failed to write block info"));
+    } else {
+    	CBlockFileInfo info;
+        if (!bitcoin_pblocktree->ReadBlockFileInfo(nFile, info))
+            return state.Abort(_("Failed to read block info"));
+        pos.nPos = info.nSizeCompressed;
+        nNewSize = (info.nSizeCompressed += nAddSize);
+        if (!bitcoin_pblocktree->WriteBlockFileInfo(nFile, info))
+            return state.Abort(_("Failed to write block info"));
+    }
+
+    unsigned int nOldChunks = (pos.nPos + BITCOIN_COMPRESSEDFILE_CHUNK_SIZE - 1) / BITCOIN_COMPRESSEDFILE_CHUNK_SIZE;
+    unsigned int nNewChunks = (nNewSize + BITCOIN_COMPRESSEDFILE_CHUNK_SIZE - 1) / BITCOIN_COMPRESSEDFILE_CHUNK_SIZE;
+    if (nNewChunks > nOldChunks) {
+        if (Bitcoin_CheckDiskSpace(nNewChunks * BITCOIN_COMPRESSEDFILE_CHUNK_SIZE - pos.nPos)) {
+            FILE *file = Bitcoin_OpenCompressedFile(pos);
+            if (file) {
+                LogPrintf("Bitcoin: Pre-allocating up to position 0x%x in cpr%05u.dat\n", nNewChunks * BITCOIN_COMPRESSEDFILE_CHUNK_SIZE, pos.nFile);
+                AllocateFileRange(file, pos.nPos, nNewChunks * BITCOIN_COMPRESSEDFILE_CHUNK_SIZE - pos.nPos);
+                fclose(file);
+            }
+        }
+        else
+            return state.Error("out of disk space");
+    }
 
     return true;
 }
@@ -3552,6 +3811,9 @@ bool Bitcoin_CheckDiskSpace(uint64_t nAdditionalBytes)
 
 FILE* Bitcoin_OpenBlockFile(const CDiskBlockPos &pos, bool fReadOnly) {
     return OpenDiskFile(pos, "bitcoin_blocks", "blk", fReadOnly);
+}
+FILE* Bitcoin_OpenCompressedFile(const CDiskBlockPos &pos, bool fReadOnly) {
+    return OpenDiskFile(pos, "bitcoin_blocks", "cpr", fReadOnly);
 }
 
 FILE* Bitcoin_OpenUndoFile(const CDiskBlockPos &pos, bool fReadOnly) {
