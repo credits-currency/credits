@@ -289,6 +289,8 @@ std::string HelpMessage(HelpMessageMode hmm)
     strUsage += "  -reindex               " + _("Rebuild block chain index from current blk000??.dat files") + " " + _("on startup") + "\n";
     strUsage += "  -txindex               " + _("Maintain a full transaction index (default: 0)") + "\n";
     strUsage += "  -bitcoin_trimblockfiles               " + _("Trims bitcoin block files that already have been parsed (default: 1)") + "\n";
+    strUsage += "  -bitcoin_trimblockdepth               " + _("The depth in the bitcoin blockchain where old blocks are trimmed (default: 500)") + "\n";
+    strUsage += "  -credits_trimblockdepth               " + _("The depth in the credits blockchain where old bitcoin block references are trimmed (default: 500)") + "\n";
 
     strUsage += "\n" + _("Connection options:") + "\n";
     strUsage += "  -addnode=<ip>          " + _("Add a node to connect to and attempt to keep the connection open") + "\n";
@@ -1130,6 +1132,9 @@ bool Bitcredit_AppInit2(boost::thread_group& threadGroup) {
 #ifdef ENABLE_WALLET
     deposit_strWalletFile = GetArg("-deposit_wallet", "deposit_wallet.dat");
 #endif
+
+    bitcoin_nTrimBlockDepth = GetArg("-bitcoin_trimblockdepth", 500);
+    credits_nTrimBlockDepth = GetArg("-credits_trimblockdepth", 500);
 
     // ********************************************************* Step 4: application initialization: dir lock, daemonize, pidfile, debug log
 
