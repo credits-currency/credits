@@ -1953,6 +1953,30 @@ void Bitcoin_ThreadScriptCheck() {
     bitcoin_scriptcheckqueue.Thread();
 }
 
+bool Bitcoin_WriteBlockUndoToDisk(CValidationState& state, Bitcoin_CBlockIndex* pindex, Bitcoin_CBlockUndo& blockundo) {
+	CDiskBlockPos pos;
+	if (!Bitcoin_FindUndoPos(bitcoin_mainState, state, pindex->nFile, pos, ::GetSerializeSize(blockundo, SER_DISK, Bitcoin_Params().ClientVersion()) + 40))
+		return error("Bitcoin: Bitcoin_WriteBlockUndoToDisk() : FindUndoPos failed");
+	if (!blockundo.WriteToDisk(Bitcoin_OpenUndoFile(pos), pos, pindex->pprev->GetBlockHash(), Bitcoin_NetParams()))
+		return state.Abort(_("Failed to write undo data"));
+
+	pindex->nUndoPos = pos.nPos;
+	pindex->nStatus |= BLOCK_HAVE_UNDO;
+	return true;
+}
+
+bool Bitcoin_WriteBlockUndoClaimToDisk(CValidationState& state, Bitcoin_CBlockIndex* pindex, Bitcoin_CBlockUndoClaim& blockundo) {
+	CDiskBlockPos pos;
+	if (!Bitcoin_FindUndoPosClaim(bitcoin_mainState, state, pindex->nFile, pos, ::GetSerializeSize(blockundo, SER_DISK, Bitcoin_Params().ClientVersion()) + 40))
+		return error("Bitcoin: Bitcoin_WriteBlockUndoClaimToDisk() : FindUndoPosClaim failed");
+	if (!blockundo.WriteToDisk(Bitcoin_OpenUndoFileClaim(pos), pos, pindex->pprev->GetBlockHash(), Bitcoin_NetParams()))
+		return state.Abort(_("Failed to write undo claim data"));
+
+	pindex->nUndoPosClaim = pos.nPos;
+	pindex->nStatus |= BLOCK_HAVE_UNDO_CLAIM;
+	return true;
+}
+
 bool Bitcoin_ConnectBlock(Bitcoin_CBlock& block, CValidationState& state, Bitcoin_CBlockIndex* pindex, Bitcoin_CCoinsViewCache& view, Credits_CCoinsViewCache& claim_view, bool updateUndo, bool fJustCheck)
 {
     AssertLockHeld(bitcoin_mainState.cs_main);
@@ -2121,26 +2145,15 @@ bool Bitcoin_ConnectBlock(Bitcoin_CBlock& block, CValidationState& state, Bitcoi
     if (pindex->GetUndoPos().IsNull() || !pindex->IsValid(BLOCK_VALID_SCRIPTS))
     {
         if (pindex->GetUndoPos().IsNull()) {
-            CDiskBlockPos pos;
-            if (!Bitcoin_FindUndoPos(bitcoin_mainState, state, pindex->nFile, pos, ::GetSerializeSize(blockundo, SER_DISK, Bitcoin_Params().ClientVersion()) + 40))
-                return error("Bitcoin: ConnectBlock() : FindUndoPos failed");
-            if (!blockundo.WriteToDisk(Bitcoin_OpenUndoFile(pos), pos, pindex->pprev->GetBlockHash(), Bitcoin_NetParams()))
-                return state.Abort(_("Failed to write undo data"));
-
-            // update nUndoPos in block index
-            pindex->nUndoPos = pos.nPos;
-            pindex->nStatus |= BLOCK_HAVE_UNDO;
+        	if(!Bitcoin_WriteBlockUndoToDisk(state, pindex, blockundo)) {
+                return state.Abort(_("Failed to write block undo to disk!"));
+        	}
 
 			if(fastForwardClaimState) {
 				if(updateUndo) {
-					CDiskBlockPos claim_pos;
-					if (!Bitcoin_FindUndoPosClaim(bitcoin_mainState, state, pindex->nFile, claim_pos, ::GetSerializeSize(claim_blockundo, SER_DISK, Bitcoin_Params().ClientVersion()) + 40))
-						return error("Bitcoin: ConnectBlockForClaim() : FindUndoPosClaim failed");
-					if (!claim_blockundo.WriteToDisk(Bitcoin_OpenUndoFileClaim(claim_pos), claim_pos, pindex->pprev->GetBlockHash(), Bitcoin_NetParams()))
-						return state.Abort(_("Failed to write undo claim data"));
-
-					pindex->nUndoPosClaim = claim_pos.nPos;
-					pindex->nStatus |= BLOCK_HAVE_UNDO_CLAIM;
+		        	if(!Bitcoin_WriteBlockUndoClaimToDisk(state, pindex, claim_blockundo)) {
+		                return state.Abort(_("Failed to write block undo claim to disk!"));
+		        	}
 				}
             }
         }
@@ -2186,14 +2199,9 @@ bool Bitcoin_WriteBlockUndoClaimsToDisk(CValidationState& state, std::vector<pai
 		if (pindex->GetUndoPosClaim().IsNull() || !pindex->IsValid(BLOCK_VALID_SCRIPTS))
 		{
 			if (pindex->GetUndoPosClaim().IsNull()) {
-				CDiskBlockPos pos;
-				if (!Bitcoin_FindUndoPosClaim(bitcoin_mainState, state, pindex->nFile, pos, ::GetSerializeSize(blockUndoClaim, SER_DISK, Bitcoin_Params().ClientVersion()) + 40))
-					return error("Bitcoin: ConnectBlockForClaim() : FindUndoPosClaim failed");
-				if (!blockUndoClaim.WriteToDisk(Bitcoin_OpenUndoFileClaim(pos), pos, pindex->pprev->GetBlockHash(), Bitcoin_NetParams()))
-					return state.Abort(_("Failed to write undo claim data"));
-
-				pindex->nUndoPosClaim = pos.nPos;
-				pindex->nStatus |= BLOCK_HAVE_UNDO_CLAIM;
+	        	if(!Bitcoin_WriteBlockUndoClaimToDisk(state, pindex, blockUndoClaim)) {
+	                return state.Abort(_("Failed to write block undo claim to disk!"));
+	        	}
 			}
 
 			vblockindexes.push_back(Bitcoin_CDiskBlockIndex(pindex));
