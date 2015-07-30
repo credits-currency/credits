@@ -29,6 +29,7 @@ class CBlockFileInfo
 public:
     unsigned int nBlocks;      // number of blocks stored in file
     unsigned int nSize;        // number of used bytes of block file
+    unsigned int nSizeCompressed;        // number of used bytes of compressed block file
     unsigned int nUndoSize;    // number of used bytes in the undo file
     unsigned int nHeightFirst; // lowest height of block in file
     unsigned int nHeightLast;  // highest height of block in file
@@ -38,6 +39,7 @@ public:
     IMPLEMENT_SERIALIZE(
         READWRITE(VARINT(nBlocks));
         READWRITE(VARINT(nSize));
+        READWRITE(VARINT(nSizeCompressed));
         READWRITE(VARINT(nUndoSize));
         READWRITE(VARINT(nHeightFirst));
         READWRITE(VARINT(nHeightLast));
@@ -48,6 +50,7 @@ public:
      void SetNull() {
          nBlocks = 0;
          nSize = 0;
+         nSizeCompressed = 0;
          nUndoSize = 0;
          nHeightFirst = 0;
          nHeightLast = 0;
@@ -209,6 +212,8 @@ enum BlockStatus {
     BLOCK_FAILED_VALID       =   32, // stage after last reached validness failed
     BLOCK_FAILED_CHILD       =   64, // descends from failed block
     BLOCK_FAILED_MASK        =   96,
+
+    BLOCK_HAVE_COMPRESSED          =   128, // set to not interfere with other flags. Will therefore not work together with BLOCK_HAVE_MASK.
 };
 
 /** Data structure that represents a partial merkle tree.
