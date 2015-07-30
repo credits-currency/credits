@@ -172,6 +172,12 @@ Maintain a full transaction index (default: 0)
 \fB\-bitcoin_trimblockfiles\fR
 Should the bitcoin blockchain be kept intact once parsed, or deleted to save space. If set to 0, -reindex can not be done (default: 1)
 .TP
+\fB\-bitcoin_trimblockdepth\fR
+The depth in the bitcoin blockchain where old blocks are trimmed (default: 500)
+.TP
+\fB\-credits_trimblockdepth\fR
+The depth in the credits blockchain where old referenced bitcoin blocks are trimmed (default: 500)
+.TP
 \fB\-loadblock=\fR<file>
 Imports blocks from external blk000??.dat file
 .TP
