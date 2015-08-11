@@ -1443,9 +1443,20 @@ void Bitcoin_UpdateTime(Bitcoin_CBlockHeader& block, const Bitcoin_CBlockIndex* 
 }
 
 
-void Claim_SpendInput(const COutPoint &prevout, Bitcoin_CCoinsViewCache &inputs, Bitcoin_CTxUndo &txundo) {
+void Claim_SpendInput(const COutPoint &prevout, Bitcoin_CCoinsViewCache &inputs, Bitcoin_CTxUndo &txundo, ClaimSum *inputSum = NULL) {
 	Bitcoin_CCoins &coins = inputs.GetCoins(prevout.hash);
-	Bitcoin_CTxInUndo undo;
+
+	//Collect the sum for the inputs
+    if(inputSum != NULL) {
+		assert(coins.IsAvailable(prevout.n));
+		const Bitcoin_CTxOut & txout = coins.vout[prevout.n];
+		inputSum->nValueOriginalSum += txout.nValueOriginal;
+		if(txout.nValueClaimable > 0) {
+			inputSum->nValueClaimableSum += txout.nValueClaimable;
+		}
+    }
+
+    Bitcoin_CTxInUndo undo;
     bool ret = coins.Claim_Spend(prevout, undo);
     assert(ret);
     txundo.vprevout.push_back(undo);
@@ -1484,14 +1495,16 @@ void Bitcoin_UpdateCoinsForClaim(const Bitcoin_CTransactionCompressed& tx, CVali
 {
 	assert(!tx.IsCoinBase());
 
-	//Store the two different levels of values before spending.
-	//These two are used to calculate the difference between the
-	//original and the claimable state
+	//Store the sum of the two different levels of values
+	//These two are used to calculate the difference between the original and the claimable state
 	ClaimSum inputSum;
-	inputs.Claim_GetValueIn(tx, inputSum);
-	inputSum.Validate();
 
     // mark inputs spent
+	BOOST_FOREACH(const COutPoint &prevout, tx.vin) {
+    	Claim_SpendInput(prevout, inputs, txundo, &inputSum);
+	}
+
+	inputSum.Validate();
 	//Reduce the fee with the fraction that has already been claimed
 	const int64_t nFeeOriginal = inputSum.nValueOriginalSum-tx.GetValueOut();
 	const int64_t nFeeClaimable = ReduceByFraction(nFeeOriginal, inputSum.nValueClaimableSum, inputSum.nValueOriginalSum);
@@ -1499,10 +1512,6 @@ void Bitcoin_UpdateCoinsForClaim(const Bitcoin_CTransactionCompressed& tx, CVali
 
 	feeSum.nValueOriginalSum += nFeeOriginal;
 	feeSum.nValueClaimableSum += nFeeClaimable;
-
-	BOOST_FOREACH(const COutPoint &prevout, tx.vin) {
-    	Claim_SpendInput(prevout, inputs, txundo);
-	}
 
 	//If out is nothing, coins will not be found in chainstate
 	if(tx.GetValueOut() > 0 && tx.HasSpendable()) {
