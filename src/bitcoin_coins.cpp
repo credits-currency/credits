@@ -266,22 +266,6 @@ int64_t Bitcoin_CCoinsViewCache::Bitcoin_GetValueIn(const Bitcoin_CTransaction& 
 
     return nResult;
 }
-void Bitcoin_CCoinsViewCache::Claim_GetValueIn(const Bitcoin_CTransactionCompressed& tx, ClaimSum& claimSum)
-{
-    if (tx.IsCoinBase())
-        return;
-
-    for (unsigned int i = 0; i < tx.vin.size(); i++) {
-		const Bitcoin_CTxOut & txout = GetOutputFor(tx.vin[i], 0);
-
-		claimSum.nValueOriginalSum += txout.nValueOriginal;
-		if(txout.nValueClaimable > 0) {
-			claimSum.nValueClaimableSum += txout.nValueClaimable;
-		}
-    }
-
-    return;
-}
 int64_t Bitcoin_CCoinsViewCache::Claim_GetValueIn(const Credits_CTransaction& tx) {
 	assert(tx.IsClaim());
 
