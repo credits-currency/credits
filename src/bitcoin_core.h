@@ -100,10 +100,6 @@ public:
         READWRITE(nValueClaimable);
         READWRITE(scriptPubKey);
         READWRITE(nValueOriginalHasBeenSpent);
-
-        assert_with_stacktrace(Bitcoin_MoneyRange(nValueOriginal), strprintf("Bitcoin_CTxOut() : valueOriginal out of range: %d", nValueOriginal));
-        assert_with_stacktrace(Bitcoin_MoneyRange(nValueClaimable), strprintf("Bitcoin_CTxOut() : valueClaimable out of range: %d", nValueClaimable));
-        assert_with_stacktrace(nValueOriginal >= nValueClaimable, strprintf("Bitcoin_CTxOut() : valueOriginal less than valueClaimable: %d:%d", nValueOriginal, nValueClaimable));
     )
 
     void SetNull()
@@ -177,9 +173,8 @@ public:
     }
 
     void Validate() {
-    	assert_with_stacktrace(Bitcoin_MoneyRange(nValueOriginalSum), strprintf("ClaimSum() : nOriginal out of range: %d", nValueOriginalSum));
-    	assert_with_stacktrace(Bitcoin_MoneyRange(nValueClaimableSum), strprintf("ClaimSum() : nClaimable out of range: %d", nValueClaimableSum));
-
+    	assert(Bitcoin_MoneyRange(nValueOriginalSum));
+    	assert(Bitcoin_MoneyRange(nValueClaimableSum));
     	assert(nValueOriginalSum >= nValueClaimableSum);
     }
 };

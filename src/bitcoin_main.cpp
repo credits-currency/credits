@@ -1504,7 +1504,6 @@ void Bitcoin_UpdateCoinsForClaim(const Bitcoin_CTransactionCompressed& tx, CVali
     	Claim_SpendInput(prevout, inputs, txundo, &inputSum);
 	}
 
-	inputSum.Validate();
 	//Reduce the fee with the fraction that has already been claimed
 	const int64_t nFeeOriginal = inputSum.nValueOriginalSum-tx.GetValueOut();
 	const int64_t nFeeClaimable = ReduceByFraction(nFeeOriginal, inputSum.nValueClaimableSum, inputSum.nValueOriginalSum);
@@ -2218,6 +2217,8 @@ bool Bitcoin_ConnectBlockForClaim(Bitcoin_CBlockCompressed& block, CValidationSt
         Bitcoin_UpdateCoinsForClaim(tx, state, view, feeSum, txundo, pindex->nHeight, block.vtx[i].txHash);
         blockundo.vtxundo.push_back(txundo);
     }
+
+    feeSum.Validate();
 
     //Now update the coinbase
     const Bitcoin_CTransactionCompressed &tx = block.vtx[0];

@@ -43,10 +43,6 @@ void Bitcoin_CTxIn::print() const
 
 Bitcoin_CTxOut::Bitcoin_CTxOut(int64_t nValueOriginalIn, int64_t nValueClaimableIn, CScript scriptPubKeyIn, int nValueOriginalHasBeenSpentIn)
 {
-	assert_with_stacktrace(Bitcoin_MoneyRange(nValueOriginalIn), strprintf("Bitcoin_CTxOut() : valueOriginal out of range: %d", nValueOriginalIn));
-	assert_with_stacktrace(Bitcoin_MoneyRange(nValueClaimableIn), strprintf("Bitcoin_CTxOut() : valueClaimable out of range: %d", nValueClaimableIn));
-	assert_with_stacktrace(nValueOriginalIn >= nValueClaimableIn, strprintf("Bitcoin_CTxOut() : valueOriginal less than valueClaimable: %d:%d", nValueOriginalIn, nValueClaimableIn));
-
 	nValueOriginal = nValueOriginalIn;
 	nValueClaimable = nValueClaimableIn;
     scriptPubKey = scriptPubKeyIn;
