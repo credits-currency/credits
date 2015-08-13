@@ -339,7 +339,7 @@ public:
     //TODO - test this fractional calculation.
     // construct a Claim_CCoins from a CTransaction, at a given height
     Claim_CCoins(const Bitcoin_CTransactionCompressed &tx, int nHeightIn, const ClaimSum& claimSum) : fCoinBase(tx.IsCoinBase()), nHeight(nHeightIn), nVersion(tx.nVersion) {
-
+        vout.reserve(tx.vout.size());
 		if(fCoinBase) {
 			const int64_t nTotalReduceFees = claimSum.nValueOriginalSum - claimSum.nValueClaimableSum;
 			const int64_t nTotalValueOut = tx.GetValueOut();
@@ -377,6 +377,7 @@ public:
     //1. To create an object that can be compared with equalsExcludingClaimable
     //2. In Bitcoin block connect and disconnect when fast forwarding the claim chainstate
     Claim_CCoins(const Bitcoin_CTransaction &tx, int nHeightIn) : fCoinBase(tx.IsCoinBase()), nHeight(nHeightIn), nVersion(tx.nVersion) {
+        vout.reserve(tx.vout.size());
     	BOOST_FOREACH(const CTxOut & txout, tx.vout) {
     		vout.push_back(CTxOutClaim(txout.nValue, txout.nValue, txout.scriptPubKey));
     	}
@@ -386,6 +387,7 @@ public:
     //This constructor has only one usage. NB it must NOT be used for anything else!
     //1. To create an object that can be compared with equalsForBlockCompressedAttributes
     Claim_CCoins(const Bitcoin_CTransactionCompressed &tx, int nHeightIn) : fCoinBase(tx.IsCoinBase()), nHeight(nHeightIn), nVersion(tx.nVersion) {
+        vout.reserve(tx.vout.size());
         if(tx.IsCreatedFromBlock()) {
         	BOOST_FOREACH(const CTxOut & txout, tx.vout) {
         		vout.push_back(CTxOutClaim(txout.nValue, 0, txout.scriptPubKey));
