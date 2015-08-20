@@ -1298,11 +1298,9 @@ void DumpAddresses(CNetParams * netParams)
     			netParams->LogPrefix(), netParams->addrman.size(), fileName, GetTimeMillis() - nStart);
     }
 }
-void Bitcredit_ThreadDumpAddresses() {
-	DumpAddresses(Credits_NetParams());
-}
-void Bitcoin_ThreadDumpAddresses() {
+void ThreadDumpAddresses() {
 	DumpAddresses(Bitcoin_NetParams());
+	DumpAddresses(Credits_NetParams());
 }
 
 void static ProcessOneShot(CNetParams * netParams)
@@ -1571,82 +1569,82 @@ void static StartSync(const vector<CNode*> &vNodes, CNetParams * netParams) {
     }
 }
 
-void MessageHandler(CNetParams * netParams)
+bool MessageHandler(CNetParams * netParams)
+{
+    bool fHaveSyncNode = false;
+
+    vector<CNode*> vNodesCopy;
+    {
+        LOCK(netParams->cs_vNodes);
+        vNodesCopy = netParams->vNodes;
+        BOOST_FOREACH(CNode* pnode, vNodesCopy) {
+            pnode->AddRef();
+            if (pnode == netParams->pnodeSync)
+                fHaveSyncNode = true;
+        }
+    }
+
+    if (!fHaveSyncNode)
+        StartSync(vNodesCopy, netParams);
+
+    // Poll the connected nodes for messages
+    CNode* pnodeTrickle = NULL;
+    if (!vNodesCopy.empty())
+        pnodeTrickle = vNodesCopy[GetRand(vNodesCopy.size())];
+
+    bool fSleep = true;
+
+    BOOST_FOREACH(CNode* pnode, vNodesCopy)
+    {
+        if (pnode->fDisconnect)
+            continue;
+
+        // Receive messages
+        {
+            TRY_LOCK(pnode->cs_vRecvMsg, lockRecv);
+            if (lockRecv)
+            {
+                if (!netParams->GetNodeSignals().ProcessMessages(pnode))
+                    pnode->CloseSocketDisconnect();
+
+                if (pnode->nSendSize < SendBufferSize())
+                {
+                    if (!pnode->vRecvGetData.empty() || (!pnode->vRecvMsg.empty() && pnode->vRecvMsg[0].complete()))
+                    {
+                        fSleep = false;
+                    }
+                }
+            }
+        }
+        boost::this_thread::interruption_point();
+
+        // Send messages
+        {
+            TRY_LOCK(pnode->cs_vSend, lockSend);
+            if (lockSend)
+            	netParams->GetNodeSignals().SendMessages(pnode, pnode == pnodeTrickle);
+        }
+        boost::this_thread::interruption_point();
+    }
+
+    {
+        LOCK(netParams->cs_vNodes);
+        BOOST_FOREACH(CNode* pnode, vNodesCopy)
+            pnode->Release();
+    }
+    return fSleep;
+}
+void ThreadMessageHandler()
 {
     SetThreadPriority(THREAD_PRIORITY_BELOW_NORMAL);
     while (true)
     {
-        bool fHaveSyncNode = false;
+    	const bool fBitcoinSleep = MessageHandler(Bitcoin_NetParams());
+    	const bool fCreditsSleep = MessageHandler(Credits_NetParams());
 
-        vector<CNode*> vNodesCopy;
-        {
-            LOCK(netParams->cs_vNodes);
-            vNodesCopy = netParams->vNodes;
-            BOOST_FOREACH(CNode* pnode, vNodesCopy) {
-                pnode->AddRef();
-                if (pnode == netParams->pnodeSync)
-                    fHaveSyncNode = true;
-            }
-        }
-
-        if (!fHaveSyncNode)
-            StartSync(vNodesCopy, netParams);
-
-        // Poll the connected nodes for messages
-        CNode* pnodeTrickle = NULL;
-        if (!vNodesCopy.empty())
-            pnodeTrickle = vNodesCopy[GetRand(vNodesCopy.size())];
-
-        bool fSleep = true;
-
-        BOOST_FOREACH(CNode* pnode, vNodesCopy)
-        {
-            if (pnode->fDisconnect)
-                continue;
-
-            // Receive messages
-            {
-                TRY_LOCK(pnode->cs_vRecvMsg, lockRecv);
-                if (lockRecv)
-                {
-                    if (!netParams->GetNodeSignals().ProcessMessages(pnode))
-                        pnode->CloseSocketDisconnect();
-
-                    if (pnode->nSendSize < SendBufferSize())
-                    {
-                        if (!pnode->vRecvGetData.empty() || (!pnode->vRecvMsg.empty() && pnode->vRecvMsg[0].complete()))
-                        {
-                            fSleep = false;
-                        }
-                    }
-                }
-            }
-            boost::this_thread::interruption_point();
-
-            // Send messages
-            {
-                TRY_LOCK(pnode->cs_vSend, lockSend);
-                if (lockSend)
-                	netParams->GetNodeSignals().SendMessages(pnode, pnode == pnodeTrickle);
-            }
-            boost::this_thread::interruption_point();
-        }
-
-        {
-            LOCK(netParams->cs_vNodes);
-            BOOST_FOREACH(CNode* pnode, vNodesCopy)
-                pnode->Release();
-        }
-
-        if (fSleep)
+        if (fBitcoinSleep && fCreditsSleep)
             MilliSleep(100);
     }
-}
-void Bitcredit_ThreadMessageHandler() {
-	MessageHandler(Credits_NetParams());
-}
-void Bitcoin_ThreadMessageHandler() {
-	MessageHandler(Bitcoin_NetParams());
 }
 
 
@@ -1853,12 +1851,10 @@ void StartNode(boost::thread_group& threadGroup)
     threadGroup.create_thread(boost::bind(&TraceThread<void (*)()>, "bitcredit_opencon", &Bitcredit_ThreadOpenConnections));
 
     // Process messages
-    threadGroup.create_thread(boost::bind(&TraceThread<void (*)()>, "bitcoin_msghand", &Bitcoin_ThreadMessageHandler));
-    threadGroup.create_thread(boost::bind(&TraceThread<void (*)()>, "bitcredit_msghand", &Bitcredit_ThreadMessageHandler));
+    threadGroup.create_thread(boost::bind(&TraceThread<void (*)()>, "msghand", &ThreadMessageHandler));
 
     // Dump network addresses
-    threadGroup.create_thread(boost::bind(&LoopForever<void (*)()>, "bitcoin_dumpaddr", &Bitcoin_ThreadDumpAddresses, DUMP_ADDRESSES_INTERVAL * 1000));
-    threadGroup.create_thread(boost::bind(&LoopForever<void (*)()>, "bitcredit_dumpaddr", &Bitcredit_ThreadDumpAddresses, DUMP_ADDRESSES_INTERVAL * 1000));
+    threadGroup.create_thread(boost::bind(&LoopForever<void (*)()>, "dumpaddr", &ThreadDumpAddresses, DUMP_ADDRESSES_INTERVAL * 1000));
 }
 
 void StopConnections(CNetParams * netParams) {

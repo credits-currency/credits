@@ -85,6 +85,7 @@ public:
     //1. It can and must only be done by the Bitcoin coin tip, not the claim coin tip
     //2. To create an object that can be compared with equalsForBlockAttributes
     Bitcoin_CCoins(const Bitcoin_CTransaction &tx, int nHeightIn) : fCoinBase(tx.IsCoinBase()), nHeight(nHeightIn), nVersion(tx.nVersion) {
+    	vout.reserve(tx.vout.size());
     	BOOST_FOREACH(const CTxOut & txout, tx.vout) {
     		vout.push_back(Bitcoin_CTxOut(txout.nValue, 0, txout.scriptPubKey, 0));
     	}
@@ -96,10 +97,12 @@ public:
     //1. To create an object that can be compared with equalsForBlockCompressedAttributes
     Bitcoin_CCoins(const Bitcoin_CTransactionCompressed &tx, int nHeightIn) : fCoinBase(tx.IsCoinBase()), nHeight(nHeightIn), nVersion(tx.nVersion) {
         if(tx.IsCreatedFromBlock()) {
+        	vout.reserve(tx.vout.size());
         	BOOST_FOREACH(const CTxOut & txout, tx.vout) {
         		vout.push_back(Bitcoin_CTxOut(txout.nValue, 0, txout.scriptPubKey, 0));
         	}
         } else {
+        	vout.reserve(tx.voutSpendable.size());
         	//Add dummy Bitcoin_CTxOut to use for comparison
 			for (unsigned int i = 0; i < tx.voutSpendable.size(); i++) {
 				CScript dummyScript;
@@ -511,7 +514,6 @@ public:
         @return	Sum of value of all inputs (scriptSigs)
      */
     int64_t Bitcoin_GetValueIn(const Bitcoin_CTransaction& tx);
-    void Claim_GetValueIn(const Bitcoin_CTransactionCompressed& tx, ClaimSum& claimSum);
     int64_t Claim_GetValueIn(const Credits_CTransaction& tx);
 
     // Check whether all prevouts of the transaction are present in the UTXO set represented by this view

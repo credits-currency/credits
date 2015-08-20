@@ -316,9 +316,12 @@ public:
 		txHash = tx.GetHash();
 		valueOut = tx.GetValueOut();
 		isCoinBase = isCoinBaseIn;
+		vin.reserve(tx.vin.size());
 		for (unsigned int j = 0; j < tx.vin.size(); j++) {
 			vin.push_back(tx.vin[j].prevout);
 		}
+		voutSpendable.reserve(tx.vout.size());
+		vout.reserve(tx.vout.size());
 		for (unsigned int j = 0; j < tx.vout.size(); j++) {
 			voutSpendable.push_back(!tx.vout[j].scriptPubKey.IsUnspendable());
 			vout.push_back(tx.vout[j]);
