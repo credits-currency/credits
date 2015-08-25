@@ -1637,6 +1637,7 @@ bool Credits_CheckInputs(const Credits_CTransaction& tx, CValidationState &state
         Bitcoin_CBlockIndex *bitcoin_pindexPrev = bitcoin_mapBlockIndex.find(bitcoinBestBlock)->second;
         int bitcoin_nSpendHeight = bitcoin_pindexPrev->nHeight + 1;
 
+		int64_t nTxValueOut = tx.GetValueOut();
         int64_t nValueIn = 0;
         int64_t nFees = 0;
     	if(tx.IsClaim()) {
@@ -1704,19 +1705,19 @@ bool Credits_CheckInputs(const Credits_CTransaction& tx, CValidationState &state
 									 BITCREDIT_REJECT_INVALID, "bad-txns-inputvalues-outofrange");
             }
 
-			if(tx.IsDeposit() && tx.GetValueOut() != nValueIn) {
+			if(tx.IsDeposit() && nTxValueOut != nValueIn) {
 				return state.Invalid(
 					error("Credits: CheckInputs() :  deposit tx inputs does not match outputs  %s", tx.GetHash().ToString()),
 					BITCREDIT_REJECT_INVALID, "bad-deposit-tx-in-out-differs");
 			}
     	}
 
-        if (nValueIn < tx.GetValueOut())
+        if (nValueIn < nTxValueOut)
             return state.DoS(100, error("Credits: CheckInputs() : %s value in < value out", tx.GetHash().ToString()),
                              BITCREDIT_REJECT_INVALID, "bad-txns-in-belowout");
 
         // Tally transaction fees
-        int64_t nTxFee = nValueIn - tx.GetValueOut();
+        int64_t nTxFee = nValueIn - nTxValueOut;
         if (nTxFee < 0)
             return state.DoS(100, error("Credits: CheckInputs() : %s nTxFee < 0", tx.GetHash().ToString()),
                              BITCREDIT_REJECT_INVALID, "bad-txns-fee-negative");

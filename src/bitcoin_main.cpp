@@ -1569,6 +1569,7 @@ bool Bitcoin_CheckInputs(const Bitcoin_CTransaction& tx, CValidationState &state
         int nSpendHeight = pindexPrev->nHeight + 1;
         int64_t nValueIn = 0;
         int64_t nFees = 0;
+        int64_t nTxValueOut = tx.GetValueOut();
         for (unsigned int i = 0; i < tx.vin.size(); i++)
         {
             const COutPoint &prevout = tx.vin[i].prevout;
@@ -1590,12 +1591,12 @@ bool Bitcoin_CheckInputs(const Bitcoin_CTransaction& tx, CValidationState &state
 
         }
 
-        if (nValueIn < tx.GetValueOut())
+        if (nValueIn < nTxValueOut)
             return state.DoS(100, error("Bitcoin: CheckInputs() : %s value in < value out", tx.GetHash().ToString()),
                              BITCOIN_REJECT_INVALID, "bad-txns-in-belowout");
 
         // Tally transaction fees
-        int64_t nTxFee = nValueIn - tx.GetValueOut();
+        int64_t nTxFee = nValueIn - nTxValueOut;
         if (nTxFee < 0)
             return state.DoS(100, error("Bitcoin: CheckInputs() : %s nTxFee < 0", tx.GetHash().ToString()),
                              BITCOIN_REJECT_INVALID, "bad-txns-fee-negative");
