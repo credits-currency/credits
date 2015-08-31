@@ -1448,7 +1448,13 @@ void Bitcoin_UpdateTime(Bitcoin_CBlockHeader& block, const Bitcoin_CBlockIndex* 
 
 
 
-
+void Claim_SpendInput(const COutPoint &prevout, Credits_CCoinsViewCache &inputs, Bitcoin_CTxUndoClaim &txundo) {
+	Claim_CCoins &coins = inputs.Claim_GetCoins(prevout.hash);
+	Bitcoin_CTxInUndoClaim undo;
+    bool ret = coins.Spend(prevout, undo);
+    assert(ret);
+    txundo.vprevout.push_back(undo);
+}
 
 void Bitcoin_UpdateCoins(const Bitcoin_CTransaction& tx, CValidationState &state, Bitcoin_CCoinsViewCache &inputs, Bitcoin_CTxUndo &txundo, Credits_CCoinsViewCache &claim_inputs, Bitcoin_CTxUndoClaim &claim_txundo, int nHeight, const uint256 &txhash, const bool& fastForwardClaimState)
 {
@@ -1463,11 +1469,7 @@ void Bitcoin_UpdateCoins(const Bitcoin_CTransaction& tx, CValidationState &state
             txundo.vprevout.push_back(undo);
 
             if(fastForwardClaimState) {
-            	Claim_CCoins &claim_coins = claim_inputs.Claim_GetCoins(txin.prevout.hash);
-            	Bitcoin_CTxInUndoClaim claim_undo;
-                ret = claim_coins.Spend(txin.prevout, claim_undo);
-                assert(ret);
-                claim_txundo.vprevout.push_back(claim_undo);
+            	Claim_SpendInput(txin.prevout, claim_inputs, claim_txundo);
             }
         }
     }
@@ -1481,7 +1483,7 @@ void Bitcoin_UpdateCoins(const Bitcoin_CTransaction& tx, CValidationState &state
     }
 }
 
-void Bitcoin_UpdateCoinsForClaim(const Bitcoin_CTransaction& tx, CValidationState &state, Credits_CCoinsViewCache &inputs, int64_t& nFeesOriginal, int64_t& nFeesClaimable, Bitcoin_CTxUndoClaim &txundo, int nHeight, const uint256 &txhash)
+void Bitcoin_UpdateCoinsForClaim(const Bitcoin_CTransactionCompressed& tx, CValidationState &state, Credits_CCoinsViewCache &inputs, int64_t& nFeesOriginal, int64_t& nFeesClaimable, Bitcoin_CTxUndoClaim &txundo, int nHeight, const uint256 &txhash)
 {
 	assert(!tx.IsCoinBase());
 
@@ -1503,21 +1505,15 @@ void Bitcoin_UpdateCoinsForClaim(const Bitcoin_CTransaction& tx, CValidationStat
 	nFeesOriginal += nFeeOriginal;
 	nFeesClaimable += nFeeClaimable;
 
-	BOOST_FOREACH(const Bitcoin_CTxIn &txin, tx.vin) {
-		Claim_CCoins &coins = inputs.Claim_GetCoins(txin.prevout.hash);
-
-		Bitcoin_CTxInUndoClaim undo;
-		ret = coins.Spend(txin.prevout, undo);
-		assert(ret);
-
-		txundo.vprevout.push_back(undo);
+	BOOST_FOREACH(const COutPoint &prevout, tx.vin) {
+    	Claim_SpendInput(prevout, inputs, txundo);
 	}
 
     // add outputs
     ret = inputs.Claim_SetCoins(txhash, Claim_CCoins(tx, nHeight, claimSum));
     assert(ret);
 }
-void Bitcoin_UpdateCoinsForClaimCoinbase(const Bitcoin_CTransaction& tx, CValidationState &state, Credits_CCoinsViewCache &inputs, int64_t& nFeesOriginal, int64_t& nFeesClaimable, int nHeight, const uint256 &txhash)
+void Bitcoin_UpdateCoinsForClaimCoinbase(const Bitcoin_CTransactionCompressed& tx, CValidationState &state, Credits_CCoinsViewCache &inputs, int64_t& nFeesOriginal, int64_t& nFeesClaimable, int nHeight, const uint256 &txhash)
 {
 	assert(tx.IsCoinBase());
 
@@ -1643,22 +1639,153 @@ bool Bitcoin_CheckInputs(const Bitcoin_CTransaction& tx, CValidationState &state
     return true;
 }
 
+void RevertCoinClaim(const Bitcoin_CTransactionCompressed &tx, Bitcoin_CBlockIndex* pindex, Credits_CCoinsViewCache& view, bool& fClean) {
+    const uint256 hash = tx.GetHash();
 
+    //Disconnecting this low into the blockchain we will encounter two transactions where the coinbase tx has been reused, causing the transactions to be
+    //unspendable from the first block where they appeared. Search for BIP30 in the codebase for more info. Block 91842 and 91880 are the blocks
+    //that reuses the coinbases.
+    if( (pindex->nHeight==91812 && tx.GetHash() == uint256("0xd5d27987d2a3dfc724e359870c6644b40e497bdc0589a033220fe15429d88599")) ||
+    		(pindex->nHeight==91722 && tx.GetHash() == uint256("0xe3bf3d07d4b0375638d5f1db5255fe07ba2c4cb067cd81b84ee974b6585fb468")) ) {
+    	return;
+    }
+
+    // Check that all outputs are available and match the outputs in the block itself
+    // exactly. Note that transactions with only provably unspendable outputs won't
+    // have outputs available even in the block itself, so we handle that case
+    // specially with outsEmpty.
+    Claim_CCoins outsEmpty;
+    Claim_CCoins &outs = view.Claim_HaveCoins(hash) ? view.Claim_GetCoins(hash) : outsEmpty;
+    outs.ClearUnspendable();
+
+    Claim_CCoins outsBlock = Claim_CCoins(tx, pindex->nHeight);
+    // The Claim_CCoins serialization does not serialize negative numbers.
+    // No network rules currently depend on the version here, so an inconsistency is harmless
+    // but it must be corrected before txout nversion ever influences a network rule.
+    if (outsBlock.nVersion < 0)
+        outs.nVersion = outsBlock.nVersion;
+    if(tx.IsCreatedFromBlock()) {
+		if(!outs.equalsExcludingClaimable(outsBlock)) {
+			fClean = fClean && error("Bitcoin: DisconnectBlockForClaim() : added transaction mismatch? database corrupted, \nfrom disk chainstate: \n%s, \nrecreated from block tx: \n%s", outs.ToString(), outsBlock.ToString());
+		}
+    } else {
+		if(!outs.equalsForBlockCompressedAttributes(outsBlock)) {
+			fClean = fClean && error("Bitcoin: DisconnectBlockForClaim() : added transaction mismatch? database corrupted, \nfrom disk chainstate: \n%s, \nrecreated from compressed block tx: \n%s", outs.ToString(), outsBlock.ToString());
+		}
+    }
+    // remove outputs
+    outs = Claim_CCoins();
+}
+
+bool RevertBlockClaim(Bitcoin_CBlockCompressed& block, Bitcoin_CBlockIndex* pindex, Credits_CCoinsViewCache& view, bool updateUndo, std::vector<pair<Bitcoin_CBlockIndex*, Bitcoin_CBlockUndoClaim> > &vBlockUndos, bool& fClean) {
+    assert(view.Claim_GetBestBlock() == pindex->GetBlockHash());
+
+	Bitcoin_CBlockUndoClaim blockUndo;
+    CDiskBlockPos pos = pindex->GetUndoPosClaim();
+    if (pos.IsNull())
+        return error("Bitcoin: RevertBlockClaim() : no undo data available");
+    if (!blockUndo.ReadFromDisk(Bitcoin_OpenUndoFileClaim(pos, true), pos, pindex->pprev->GetBlockHash(), Bitcoin_NetParams()))
+        return error("Bitcoin: RevertBlockClaim() : failure reading undo data");
+    if (blockUndo.vtxundo.size() + 1 != block.vtx.size())
+        return error("Bitcoin: RevertBlockClaim() : block and claim undo data inconsistent");
+
+    //First undo coinbase, since it is added at the end for Bitcoin_ConnectBlockForClaim().
+    //It is not strictly neccessary since coinbases cannot be spent in the same block as they exist
+    //but it is done this way to keep it in sync with how Bitcoin_ConnectBlockForClaim() works
+    RevertCoinClaim(block.vtx[0], pindex, view, fClean);
+
+    // then undo transactions in reverse order
+    for (int i = block.vtx.size() - 1; i >= 1; i--) {
+        const Bitcoin_CTransactionCompressed &tx = block.vtx[i];
+        RevertCoinClaim(tx, pindex, view, fClean);
+
+		const Bitcoin_CTxUndoClaim &txundo = blockUndo.vtxundo[i-1];
+
+		if (txundo.vprevout.size() != tx.vin.size())
+			return error("Bitcoin: RevertBlockClaim() : transaction and claim undo data inconsistent");
+
+		for (unsigned int j = tx.vin.size(); j-- > 0;) {
+			const COutPoint &out = tx.vin[j];
+
+			const Bitcoin_CTxInUndoClaim &undo = txundo.vprevout[j];
+
+			Claim_CCoins coins;
+
+			view.Claim_GetCoins(out.hash, coins); // this can fail if the prevout was already entirely spent
+
+			if (undo.nHeight != 0) {
+				// undo data contains height: this is the last output of the prevout tx being spent
+					if (!coins.IsPruned())
+						fClean = fClean && error("Bitcoin: Bitcoin_DisconnectBlockForClaim() : claim undo data overwriting existing transaction");
+
+					coins = Claim_CCoins();
+					coins.fCoinBase = undo.fCoinBase;
+					coins.nHeight = undo.nHeight;
+					coins.nVersion = undo.nVersion;
+			} else {
+				if (coins.IsPruned())
+					fClean = fClean && error("Bitcoin: Bitcoin_DisconnectBlockForClaim() : claim undo data adding output to missing transaction");
+			}
+
+			if (coins.IsAvailable(out.n))
+				fClean = fClean && error("Bitcoin: Bitcoin_DisconnectBlockForClaim() : claim undo data overwriting existing output");
+
+			if (coins.vout.size() < out.n+1)
+				coins.vout.resize(out.n+1);
+			coins.vout[out.n] = undo.txout;
+
+			if (!view.Claim_SetCoins(out.hash, coins))
+				return error("Bitcoin: Bitcoin_DisconnectBlockForClaim() : cannot restore coin inputs");
+		}
+    }
+
+    if(updateUndo) {
+    	Bitcoin_CBlockUndoClaim empty;
+		vBlockUndos.push_back(make_pair(pindex, empty));
+    }
+
+    // move best block pointer to prevout block
+    view.Claim_SetBestBlock(pindex->pprev->GetBlockHash());
+
+    return true;
+}
 
 bool Bitcoin_DisconnectBlock(Bitcoin_CBlock& block, CValidationState& state, Bitcoin_CBlockIndex* pindex, Bitcoin_CCoinsViewCache& view, Credits_CCoinsViewCache& claim_view, bool updateUndo, bool* pfClean)
 {
     const bool fastForwardClaimState = FastForwardClaimStateFor(pindex->nHeight, pindex->GetBlockHash());
 
     assert(pindex->GetBlockHash() == view.GetBestBlock());
-    if(fastForwardClaimState) {
-        assert(claim_view.Claim_GetBestBlock() == pindex->GetBlockHash());
-        assert(claim_view.Claim_GetBitcreditClaimTip() == uint256(1));
-    }
 
     if (pfClean)
         *pfClean = false;
 
     bool fClean = true;
+
+    if(fastForwardClaimState) {
+        assert(claim_view.Claim_GetBitcreditClaimTip() == uint256(1));
+
+    	std::vector<pair<Bitcoin_CBlockIndex*, Bitcoin_CBlockUndoClaim> > vBlockUndos;
+    	Bitcoin_CBlockCompressed blockCompressed(block);
+		if(!RevertBlockClaim(blockCompressed, pindex, claim_view, updateUndo, vBlockUndos, fClean)) {
+            return error("Bitcoin: Bitcoin_DisconnectBlock() : cannot restore coin inputs from undo");
+        }
+
+		if(updateUndo) {
+			// We must delete the old undo claim data once it has been applied. The reason is that moving
+			// up and down the bitcoin blockchain will produce different results depending on which bitcredit
+			// block that is responsible for the moving of the tip. This is different from the "normal" chainstate
+			//functions where undo data never change, since a block is immutable
+			pindex->nUndoPosClaim = 0;
+			pindex->nStatus = pindex->nStatus & ~BLOCK_HAVE_UNDO_CLAIM;
+
+			Bitcoin_CDiskBlockIndex blockindex(pindex);
+			if (!bitcoin_pblocktree->WriteBlockIndex(blockindex))
+				return state.Abort(_("Failed to write block index"));
+		}
+
+        //Claim tip set to 1 to indicate credits non-aligned chainstate. Only happens on bitcoin initial download
+		claim_view.Claim_SetBitcreditClaimTip(uint256(1));
+    }
 
     Bitcoin_CBlockUndo blockUndo;
     CDiskBlockPos pos = pindex->GetUndoPos();
@@ -1731,131 +1858,12 @@ bool Bitcoin_DisconnectBlock(Bitcoin_CBlock& block, CValidationState& state, Bit
     // move best block pointer to prevout block
     view.SetBestBlock(pindex->pprev->GetBlockHash());
 
-    if(fastForwardClaimState) {
-        Bitcoin_CBlockUndoClaim claim_blockUndo;
-        CDiskBlockPos claim_pos = pindex->GetUndoPosClaim();
-        if (claim_pos.IsNull())
-            return error("Bitcoin: DisconnectBlock() : no claim undo data available");
-        if (!claim_blockUndo.ReadFromDisk(Bitcoin_OpenUndoFileClaim(claim_pos, true), claim_pos, pindex->pprev->GetBlockHash(), Bitcoin_NetParams()))
-            return error("Bitcoin: DisconnectBlock() : failure reading claim undo data");
-
-        if (claim_blockUndo.vtxundo.size() + 1 != block.vtx.size())
-            return error("Bitcoin: DisconnectBlock() : block and claim undo data inconsistent");
-
-        // undo transactions in reverse order
-        for (int i = block.vtx.size() - 1; i >= 0; i--) {
-            const Bitcoin_CTransaction &tx = block.vtx[i];
-            uint256 hash = tx.GetHash();
-
-            // Check that all outputs are available and match the outputs in the block itself
-            // exactly. Note that transactions with only provably unspendable outputs won't
-            // have outputs available even in the block itself, so we handle that case
-            // specially with outsEmpty.
-            Claim_CCoins claim_outsEmpty;
-            Claim_CCoins &claim_outs = claim_view.Claim_HaveCoins(hash) ? claim_view.Claim_GetCoins(hash) : claim_outsEmpty;
-            claim_outs.ClearUnspendable();
-
-            Claim_CCoins claim_outsBlock = Claim_CCoins(tx, pindex->nHeight);
-            // The Bitcoin_CCoins serialization does not serialize negative numbers.
-            // No network rules currently depend on the version here, so an inconsistency is harmless
-            // but it must be corrected before txout nversion ever influences a network rule.
-            if (claim_outsBlock.nVersion < 0)
-            	claim_outs.nVersion = claim_outsBlock.nVersion;
-            if(!claim_outs.equalsExcludingClaimable(claim_outsBlock))
-                fClean = fClean && error("Bitcoin: DisconnectBlock() : claim added transaction mismatch? database corrupted");
-
-            // remove outputs
-            claim_outs = Claim_CCoins();
-
-            // restore inputs
-            if (i > 0) { // not coinbases
-                const Bitcoin_CTxUndoClaim &claim_txundo = claim_blockUndo.vtxundo[i-1];
-                if (claim_txundo.vprevout.size() != tx.vin.size())
-                    return error("Bitcoin: DisconnectBlock() : transaction and claim undo data inconsistent");
-                for (unsigned int j = tx.vin.size(); j-- > 0;) {
-                    const COutPoint &claim_out = tx.vin[j].prevout;
-                    const Bitcoin_CTxInUndoClaim &claim_undo = claim_txundo.vprevout[j];
-                    Claim_CCoins claim_coins;
-                    claim_view.Claim_GetCoins(claim_out.hash, claim_coins); // this can fail if the prevout was already entirely spent
-                    if (claim_undo.nHeight != 0) {
-                        // undo data contains height: this is the last output of the prevout tx being spent
-                        if (!claim_coins.IsPruned())
-                            fClean = fClean && error("Bitcoin: DisconnectBlock() : claim undo data overwriting existing transaction");
-                        claim_coins = Claim_CCoins();
-                        claim_coins.fCoinBase = claim_undo.fCoinBase;
-                        claim_coins.nHeight = claim_undo.nHeight;
-                        claim_coins.nVersion = claim_undo.nVersion;
-                    } else {
-                        if (claim_coins.IsPruned())
-                            fClean = fClean && error("Bitcoin: DisconnectBlock() : claim undo data adding output to missing transaction");
-                    }
-                    if (claim_coins.IsAvailable(claim_out.n))
-                        fClean = fClean && error("Bitcoin: DisconnectBlock() : claim undo data overwriting existing output");
-                    if (claim_coins.vout.size() < claim_out.n+1)
-                    	claim_coins.vout.resize(claim_out.n+1);
-                    claim_coins.vout[claim_out.n] = claim_undo.txout;
-                    if (!claim_view.Claim_SetCoins(claim_out.hash, claim_coins))
-                        return error("Bitcoin: DisconnectBlock() : cannot restore claim coin inputs");
-                }
-            }
-        }
-
-		if(updateUndo) {
-			// We must delete the old undo claim data once it has been applied. The reason is that moving
-			// up and down the bitcoin blockchain will produce different results depending on which bitcredit
-			// block that is responsible for the moving of the tip. This is different from the "normal" chainstate
-			//functions where undo data never change, since a block is immutable
-			pindex->nUndoPosClaim = 0;
-			pindex->nStatus = pindex->nStatus & ~BLOCK_HAVE_UNDO_CLAIM;
-
-			Bitcoin_CDiskBlockIndex blockindex(pindex);
-			if (!bitcoin_pblocktree->WriteBlockIndex(blockindex))
-				return state.Abort(_("Failed to write block index"));
-		}
-
-		claim_view.Claim_SetBestBlock(pindex->pprev->GetBlockHash());
-        //Claim tip set to 1 to indicate credits non-aligned chainstate. Only happens on bitcoin initial download
-		claim_view.Claim_SetBitcreditClaimTip(uint256(1));
-    }
-
     if (pfClean) {
         *pfClean = fClean;
         return true;
     } else {
         return fClean;
     }
-}
-
-void RevertCoin(const Bitcoin_CTransaction &tx, Bitcoin_CBlockIndex* pindex, Credits_CCoinsViewCache& view, bool& fClean) {
-    const uint256 hash = tx.GetHash();
-
-    //Disconnecting this low into the blockchain we will encounter two transactions where the coinbase tx has been reused, causing the transactions to be
-    //unspendable from the first block where they appeared. Search for BIP30 in the codebase for more info. Block 91842 and 91880 are the blocks
-    //that reuses the coinbases.
-    if( (pindex->nHeight==91812 && tx.GetHash() == uint256("0xd5d27987d2a3dfc724e359870c6644b40e497bdc0589a033220fe15429d88599")) ||
-    		(pindex->nHeight==91722 && tx.GetHash() == uint256("0xe3bf3d07d4b0375638d5f1db5255fe07ba2c4cb067cd81b84ee974b6585fb468")) ) {
-    	return;
-    }
-
-    // Check that all outputs are available and match the outputs in the block itself
-    // exactly. Note that transactions with only provably unspendable outputs won't
-    // have outputs available even in the block itself, so we handle that case
-    // specially with outsEmpty.
-    Claim_CCoins outsEmpty;
-    Claim_CCoins &outs = view.Claim_HaveCoins(hash) ? view.Claim_GetCoins(hash) : outsEmpty;
-    outs.ClearUnspendable();
-
-    Claim_CCoins outsBlock = Claim_CCoins(tx, pindex->nHeight);
-    // The Claim_CCoins serialization does not serialize negative numbers.
-    // No network rules currently depend on the version here, so an inconsistency is harmless
-    // but it must be corrected before txout nversion ever influences a network rule.
-    if (outsBlock.nVersion < 0)
-        outs.nVersion = outsBlock.nVersion;
-    if(!outs.equalsExcludingClaimable(outsBlock)) {
-		fClean = fClean && error("Bitcoin: DisconnectBlockForClaim() : added transaction mismatch? database corrupted, \nfrom disk chainstate: \n%s, \nrecreated from block tx: \n%s", outs.ToString(), outsBlock.ToString());
-    }
-    // remove outputs
-    outs = Claim_CCoins();
 }
 
 bool Bitcoin_DeleteBlockUndoClaimsFromDisk(CValidationState& state, std::vector<pair<Bitcoin_CBlockIndex*, Bitcoin_CBlockUndoClaim> > &vBlockUndoClaims) {
@@ -1883,82 +1891,17 @@ bool Bitcoin_DeleteBlockUndoClaimsFromDisk(CValidationState& state, std::vector<
     return true;
 }
 
-bool Bitcoin_DisconnectBlockForClaim(Bitcoin_CBlock& block, CValidationState& state, Bitcoin_CBlockIndex* pindex, Credits_CCoinsViewCache& view, bool updateUndo, std::vector<pair<Bitcoin_CBlockIndex*, Bitcoin_CBlockUndoClaim> > &vBlockUndoClaims, bool* pfClean)
-{
-    assert(pindex->GetBlockHash() == view.Claim_GetBestBlock());
 
+bool Bitcoin_DisconnectBlockForClaim(Bitcoin_CBlockCompressed& block, CValidationState& state, Bitcoin_CBlockIndex* pindex, Credits_CCoinsViewCache& view, bool updateUndo, std::vector<pair<Bitcoin_CBlockIndex*, Bitcoin_CBlockUndoClaim> > &vBlockUndoClaims, bool* pfClean)
+{
     if (pfClean)
         *pfClean = false;
 
     bool fClean = true;
 
-    Bitcoin_CBlockUndoClaim blockUndo;
-    CDiskBlockPos pos = pindex->GetUndoPosClaim();
-    if (pos.IsNull())
-        return error("Bitcoin: DisconnectBlockForClaim() : no undo data available");
-    if (!blockUndo.ReadFromDisk(Bitcoin_OpenUndoFileClaim(pos, true), pos, pindex->pprev->GetBlockHash(), Bitcoin_NetParams()))
-        return error("Bitcoin: DisconnectBlockForClaim() : failure reading undo data");
-
-    if (blockUndo.vtxundo.size() + 1 != block.vtx.size())
-        return error("Bitcoin: Bitcoin_DisconnectBlockForClaim() : block and claim undo data inconsistent");
-
-    //First undo coinbase, since it is added at the end for Bitcoin_ConnectBlockForClaim().
-    //It is not strictly neccessary since coinbases cannot be spent in the same block as they exist
-    //but it is done this way to keep it in sync with how Bitcoin_ConnectBlockForClaim() works
-    RevertCoin(block.vtx[0], pindex, view, fClean);
-
-    // then undo transactions in reverse order
-    for (int i = block.vtx.size() - 1; i >= 1; i--) {
-        const Bitcoin_CTransaction &tx = block.vtx[i];
-        RevertCoin(tx, pindex, view, fClean);
-
-		const Bitcoin_CTxUndoClaim &txundo = blockUndo.vtxundo[i-1];
-
-		if (txundo.vprevout.size() != tx.vin.size())
-			return error("Bitcoin: Bitcoin_DisconnectBlockForClaim() : transaction and claim undo data inconsistent");
-
-		for (unsigned int j = tx.vin.size(); j-- > 0;) {
-			const COutPoint &out = tx.vin[j].prevout;
-
-			const Bitcoin_CTxInUndoClaim &undo = txundo.vprevout[j];
-
-			Claim_CCoins coins;
-
-			view.Claim_GetCoins(out.hash, coins); // this can fail if the prevout was already entirely spent
-
-			if (undo.nHeight != 0) {
-				// undo data contains height: this is the last output of the prevout tx being spent
-					if (!coins.IsPruned())
-						fClean = fClean && error("Bitcoin: Bitcoin_DisconnectBlockForClaim() : claim undo data overwriting existing transaction");
-
-					coins = Claim_CCoins();
-					coins.fCoinBase = undo.fCoinBase;
-					coins.nHeight = undo.nHeight;
-					coins.nVersion = undo.nVersion;
-			} else {
-				if (coins.IsPruned())
-					fClean = fClean && error("Bitcoin: Bitcoin_DisconnectBlockForClaim() : claim undo data adding output to missing transaction");
-			}
-
-			if (coins.IsAvailable(out.n))
-				fClean = fClean && error("Bitcoin: Bitcoin_DisconnectBlockForClaim() : claim undo data overwriting existing output");
-
-			if (coins.vout.size() < out.n+1)
-				coins.vout.resize(out.n+1);
-			coins.vout[out.n] = undo.txout;
-
-			if (!view.Claim_SetCoins(out.hash, coins))
-				return error("Bitcoin: Bitcoin_DisconnectBlockForClaim() : cannot restore coin inputs");
-		}
+    if(!RevertBlockClaim(block, pindex, view, updateUndo, vBlockUndoClaims, fClean)) {
+        return error("Bitcoin: Bitcoin_DisconnectBlockForClaim() : cannot restore coin inputs from undo");
     }
-
-    if(updateUndo) {
-    	Bitcoin_CBlockUndoClaim empty;
-		vBlockUndoClaims.push_back(make_pair(pindex, empty));
-    }
-
-    // move best block pointer to prevout block
-    view.Claim_SetBestBlock(pindex->pprev->GetBlockHash());
 
     if (pfClean) {
         *pfClean = fClean;
@@ -2269,7 +2212,7 @@ bool Bitcoin_WriteBlockUndoClaimsToDisk(CValidationState& state, std::vector<pai
  * This function should only be used for blocks in the main chain, it assumes that the blocks are
  * valid in many respects, therefore most block validation checks are skipped.
  */
-bool Bitcoin_ConnectBlockForClaim(Bitcoin_CBlock& block, CValidationState& state, Bitcoin_CBlockIndex* pindex, Credits_CCoinsViewCache& view, bool updateUndo, std::vector<pair<Bitcoin_CBlockIndex*, Bitcoin_CBlockUndoClaim> > &vBlockUndoClaims)
+bool Bitcoin_ConnectBlockForClaim(Bitcoin_CBlockCompressed& block, CValidationState& state, Bitcoin_CBlockIndex* pindex, Credits_CCoinsViewCache& view, bool updateUndo, std::vector<pair<Bitcoin_CBlockIndex*, Bitcoin_CBlockUndoClaim> > &vBlockUndoClaims)
 {
     AssertLockHeld(bitcoin_mainState.cs_main);
 
@@ -2297,19 +2240,19 @@ bool Bitcoin_ConnectBlockForClaim(Bitcoin_CBlock& block, CValidationState& state
     //counter starts at 1
     for (unsigned int i = 1; i < block.vtx.size(); i++)
     {
-        const Bitcoin_CTransaction &tx = block.vtx[i];
+        const Bitcoin_CTransactionCompressed &tx = block.vtx[i];
 
         nInputs += tx.vin.size();
 
         Bitcoin_CTxUndoClaim txundo;
-        Bitcoin_UpdateCoinsForClaim(tx, state, view, nFeesOriginal, nFeesClaimable, txundo, pindex->nHeight, block.GetTxHash(i));
+        Bitcoin_UpdateCoinsForClaim(tx, state, view, nFeesOriginal, nFeesClaimable, txundo, pindex->nHeight, block.vtx[i].txHash);
         blockundo.vtxundo.push_back(txundo);
     }
 
     //Now update the coinbase
-    const Bitcoin_CTransaction &tx = block.vtx[0];
+    const Bitcoin_CTransactionCompressed &tx = block.vtx[0];
     nInputs += tx.vin.size();
-    Bitcoin_UpdateCoinsForClaimCoinbase(tx, state, view, nFeesOriginal, nFeesClaimable, pindex->nHeight, block.GetTxHash(0));
+    Bitcoin_UpdateCoinsForClaimCoinbase(tx, state, view, nFeesOriginal, nFeesClaimable, pindex->nHeight, block.vtx[0].txHash);
 
     int64_t nTime = GetTimeMicros() - nStart;
     if (bitcoin_fBenchmark)
@@ -2451,13 +2394,23 @@ bool static Bitcoin_DisconnectTip(CValidationState &state) {
 
 bool static Bitcoin_DisconnectTipForClaim(CValidationState &state, Credits_CCoinsViewCache& view, Bitcoin_CBlockIndex *pindex, bool updateUndo, std::vector<pair<Bitcoin_CBlockIndex*, Bitcoin_CBlockUndoClaim> > &vBlockUndoClaims) {
     // Read block from disk.
-    Bitcoin_CBlock block;
-    if (!Bitcoin_ReadBlockFromDisk(block, pindex))
-        return state.Abort(_("Failed to read block"));
-    // Apply the block atomically to the chain state.
+	Bitcoin_CBlockCompressed blockCompressed;
+	//If Bitcoin block files have been trimmed, info about the trimmmed blocks will be found in level db
+	if(bitcoin_fTrimBlockFiles) {
+	    if(!bitcoin_pblocktree->ReadBlockCompressed(pindex->GetBlockHash(), blockCompressed))
+	        return state.Abort(_("Claim: Failed to read block"));
+    } else {
+    	// Read block from disk.
+        Bitcoin_CBlock block;
+        if (!Bitcoin_ReadBlockFromDisk(block, pindex))
+            return state.Abort(_("Failed to read block"));
+
+		blockCompressed = Bitcoin_CBlockCompressed(block);
+    }
+
     int64_t nStart = GetTimeMicros();
     {
-        if (!Bitcoin_DisconnectBlockForClaim(block, state, pindex, view, updateUndo, vBlockUndoClaims))
+        if (!Bitcoin_DisconnectBlockForClaim(blockCompressed, state, pindex, view, updateUndo, vBlockUndoClaims))
             return error("Bitcoin: DisconnectTip() : DisconnectBlock %s failed", pindex->GetBlockHash().ToString());
     }
     if (bitcoin_fBenchmark)
@@ -2529,64 +2482,96 @@ bool Bitcoin_CheckTrimBlockFile(FILE* fileIn, const int nTrimToTime)
     }
 }
 
-bool Bitcoin_TrimBlockHistory(const Bitcoin_CBlockIndex * pTrimTo) {
+bool Bitcoin_TrimBlockHistory() {
     AssertLockHeld(bitcoin_mainState.cs_main);
 
     if(bitcoin_fTrimBlockFiles) {
-		const int nTrimToTime = pTrimTo->nTime;
-		const int nTrimToBlockFile = pTrimTo->nFile;
+		int trimFrequency = 1000;
+		const Bitcoin_CBlockIndex * ptip = (Bitcoin_CBlockIndex*) bitcoin_chainActive.Tip();
+		if (ptip->nHeight > trimFrequency && ptip->nHeight % trimFrequency == 0) {
+			const Bitcoin_CBlockIndex * pTrimTo = bitcoin_chainActive[ptip->nHeight - trimFrequency];
 
-		int nFile = 0;
-		while (true) {
-			if(nFile >= nTrimToBlockFile)
-				break;
-			CDiskBlockPos pos(nFile, 0);
-			FILE *fileTrim = Bitcoin_OpenBlockFile(pos, true);
-			if (!fileTrim)
-				continue;
-			LogPrintf("Bitcoin: Scanning block file blk%05u.dat for trimming...\n", (unsigned int)nFile);
+			const int nTrimToTime = pTrimTo->nTime;
+			const int nTrimToBlockFile = pTrimTo->nFile;
 
-			if(Bitcoin_CheckTrimBlockFile(fileTrim, nTrimToTime)) {
-				LogPrintf("Bitcoin: Trimming file blk%05u.dat...\n", (unsigned int)nFile);
+			int nFile = 0;
+			while (true) {
+				if(nFile >= nTrimToBlockFile)
+					break;
+				CDiskBlockPos pos(nFile, 0);
+				FILE *fileTrim = Bitcoin_OpenBlockFile(pos, true);
+				if (!fileTrim)
+					continue;
+				LogPrintf("Bitcoin: Scanning block file blk%05u.dat for trimming...\n", (unsigned int)nFile);
 
-				fileTrim = Bitcoin_OpenBlockFile(pos);
-				if (fileTrim) {
-					TruncateFile(fileTrim, 0);
-					FileCommit(fileTrim);
-					fclose(fileTrim);
+				if(Bitcoin_CheckTrimBlockFile(fileTrim, nTrimToTime)) {
+					LogPrintf("Bitcoin: Trimming file blk%05u.dat...\n", (unsigned int)nFile);
+
+					fileTrim = Bitcoin_OpenBlockFile(pos);
+					if (fileTrim) {
+						if(!TruncateFile(fileTrim, 0)) {
+							return false;
+						}
+						FileCommit(fileTrim);
+						fclose(fileTrim);
+					}
+
+					fileTrim = Bitcoin_OpenUndoFile(pos);
+					if (fileTrim) {
+						if(!TruncateFile(fileTrim, 0)) {
+							return false;
+						}
+						FileCommit(fileTrim);
+						fclose(fileTrim);
+					}
+
+					//TODO - This should probably move to compressed trim
+					fileTrim = Bitcoin_OpenUndoFileClaim(pos);
+					if (fileTrim) {
+						TruncateFile(fileTrim, 0);
+						FileCommit(fileTrim);
+						fclose(fileTrim);
+					}
 				}
-
-				fileTrim = Bitcoin_OpenUndoFile(pos);
-				if (fileTrim) {
-					TruncateFile(fileTrim, 0);
-					FileCommit(fileTrim);
-					fclose(fileTrim);
-				}
-
-				fileTrim = Bitcoin_OpenUndoFileClaim(pos);
-				if (fileTrim) {
-					TruncateFile(fileTrim, 0);
-					FileCommit(fileTrim);
-					fclose(fileTrim);
-				}
+				nFile++;
 			}
-			nFile++;
 		}
+    }
 
-		//TODO - Make as batch update for efficiency
-		//Walk all the way from trim to old trim to time, with some margin
-		int nTrimBackToTime = bitcoin_mainState.nTrimToTime - 24*60*60;
-		if(nTrimBackToTime < 0) {
-			nTrimBackToTime = 0;
-		}
-		const Bitcoin_CBlockIndex * pindex = pTrimTo;
-		while(pindex != NULL && pindex->nTime >= nTrimBackToTime) {
-			bitcoin_pblocktree->EraseBlockCompressed(pindex->GetBlockHash());
-			pindex = (Bitcoin_CBlockIndex *) pindex->pprev;
-		}
+	return true;
+}
 
-		bitcoin_mainState.nTrimToTime = nTrimToTime;
-		bitcoin_pblocktree->WriteTrimToTime(bitcoin_mainState.nTrimToTime);
+bool Bitcoin_TrimCompressedBlockHistory(CValidationState &state) {
+    AssertLockHeld(bitcoin_mainState.cs_main);
+
+    if(bitcoin_fTrimBlockFiles) {
+    	//Every 1000 blocks, trim the bitcoin block files
+		int trimFrequency = 1000;
+		const Credits_CBlockIndex * ptip = (Credits_CBlockIndex*) credits_chainActive.Tip();
+		if (ptip->nHeight > trimFrequency && ptip->nHeight % trimFrequency == 0) {
+			const Credits_CBlockIndex * pTrimToCreditsBlock = credits_chainActive[ptip->nHeight - trimFrequency];
+
+			std::map<uint256, Bitcoin_CBlockIndex*>::iterator mi = bitcoin_mapBlockIndex.find(pTrimToCreditsBlock->hashLinkedBitcoinBlock);
+			if (mi == bitcoin_mapBlockIndex.end()) {
+		        return state.Abort(strprintf(_("Referenced claim bitcoin block %s can not be found"), pTrimToCreditsBlock->hashLinkedBitcoinBlock.ToString()));
+		    }
+			const Bitcoin_CBlockIndex* pTrimToCompressed = (*mi).second;
+
+			//TODO - Make as batch update for efficiency
+			//Walk all the way from trim to old trim to time, with some margin
+			int nTrimBackToTime = bitcoin_mainState.nTrimToTime - 24*60*60;
+			if(nTrimBackToTime < 0) {
+				nTrimBackToTime = 0;
+			}
+			const Bitcoin_CBlockIndex * pindex = pTrimToCompressed;
+			while(pindex != NULL && pindex->nTime >= nTrimBackToTime) {
+				bitcoin_pblocktree->EraseBlockCompressed(pindex->GetBlockHash());
+				pindex = (Bitcoin_CBlockIndex *) pindex->pprev;
+			}
+
+			bitcoin_mainState.nTrimToTime = pTrimToCompressed->nTime;
+			bitcoin_pblocktree->WriteTrimToTime(bitcoin_mainState.nTrimToTime);
+		}
     }
 
 	return true;
@@ -2648,15 +2633,9 @@ bool static Bitcoin_ConnectTip(CValidationState &state, Bitcoin_CBlockIndex *pin
     Bitcoin_UpdateTip(pindexNew);
 
     if(fastForwardClaimState) {
-    	//Every 20000 blocks, trim the bitcoin block files
-		int trimFrequency = 20000;
-		const Bitcoin_CBlockIndex * ptip = (Bitcoin_CBlockIndex*) bitcoin_chainActive.Tip();
-		if (ptip->nHeight > trimFrequency && ptip->nHeight % trimFrequency == 0) {
-			const Bitcoin_CBlockIndex * pTrimTo = bitcoin_chainActive[ptip->nHeight - trimFrequency];
-			if (!Bitcoin_TrimBlockHistory(pTrimTo)) {
-				return error("Bitcoin: ConnectTip() : Could not trim block history!");
-			}
-		}
+    	if (!Bitcoin_TrimBlockHistory()) {
+    		return error("Bitcoin: ConnectTip() : Could not trim block history!");
+    	}
     }
 
     // Tell wallet about transactions that went from mempool
@@ -2674,17 +2653,25 @@ bool static Bitcoin_ConnectTip(CValidationState &state, Bitcoin_CBlockIndex *pin
 // Everything is finalized from Bitcredit_Connect/DisconnectBlock
 bool static Bitcoin_ConnectTipForClaim(CValidationState &state, Credits_CCoinsViewCache& view, Bitcoin_CBlockIndex *pindex, bool updateUndo, std::vector<pair<Bitcoin_CBlockIndex*, Bitcoin_CBlockUndoClaim> > &vBlockUndoClaims) {
     // Read block from disk.
-    Bitcoin_CBlock block;
-    if (!Bitcoin_ReadBlockFromDisk(block, pindex))
-        return state.Abort(_("Claim: Failed to read block"));
-
-    //Must be run to setup the merkle tree
-    block.BuildMerkleTree();
+   Bitcoin_CBlockCompressed blockCompressed;
+	//If Bitcoin block files have been trimmed, info about the trimmmed blocks will be found in level db
+	if(bitcoin_fTrimBlockFiles) {
+		if(!bitcoin_pblocktree->ReadBlockCompressed(pindex->GetBlockHash(), blockCompressed))
+			return state.Abort(_("Claim: Failed to read block"));
+	} else {
+		// Read block from disk.
+		Bitcoin_CBlock block;
+		if (!Bitcoin_ReadBlockFromDisk(block, pindex))
+			return state.Abort(_("Claim: Failed to read block"));
+		//Must be run to setup the merkle tree
+		block.BuildMerkleTree();
+		blockCompressed = Bitcoin_CBlockCompressed(block);
+	}
 
     // Apply the block atomically to the chain state.
     int64_t nStart = GetTimeMicros();
     {
-        if (!Bitcoin_ConnectBlockForClaim(block, state, pindex, view, updateUndo, vBlockUndoClaims)) {
+        if (!Bitcoin_ConnectBlockForClaim(blockCompressed, state, pindex, view, updateUndo, vBlockUndoClaims)) {
             if (state.IsInvalid())
                 Bitcoin_InvalidBlockFound(pindex, state);
             return error("Claim: ConnectTip() : ConnectBlock %s failed", pindex->GetBlockHash().ToString());
@@ -2994,26 +2981,16 @@ bool Bitcoin_ReceivedBlockTransactions(const Bitcoin_CBlock &block, CValidationS
     if (pindexNew->RaiseValidity(BLOCK_VALID_TRANSACTIONS))
         bitcoin_setBlockIndexValid.insert(pindexNew);
 
-    Bitcoin_CBlockCompressed blockCompressed;
-    for (unsigned int i = 0; i < block.vtx.size(); i++) {
-		const Bitcoin_CTransaction& tx = block.vtx[i];
-
-		Bitcoin_CTransactionCompressed txCompressed;
-		txCompressed.txHash = tx.GetHash();
-		for (unsigned int j = 0; j < tx.vin.size(); j++) {
-			txCompressed.vin.push_back(tx.vin[j].prevout);
-		}
-		blockCompressed.vtx.push_back(txCompressed);
-	}
-
     Bitcoin_CDiskBlockIndex diskIndexNew(pindexNew);
 
     if (!bitcoin_pblocktree->WriteBlockIndex(diskIndexNew))
         return state.Abort(_("Failed to write block index"));
 
-    blockCompressed.blockHash = diskIndexNew.GetBlockHash();
-    if (!bitcoin_pblocktree->WriteBlockCompressed(blockCompressed))
-        return state.Abort(_("Failed to write block tx hashes"));
+	if(bitcoin_fTrimBlockFiles) {
+		Bitcoin_CBlockCompressed blockCompressed(block);
+		if (!bitcoin_pblocktree->WriteBlockCompressed(blockCompressed))
+			return state.Abort(_("Failed to write block tx hashes"));
+	}
 
     // New best?
     if (!Bitcoin_ActivateBestChain(state))

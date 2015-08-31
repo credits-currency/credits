@@ -338,27 +338,31 @@ public:
 
     //TODO - test this fractional calculation.
     // construct a Claim_CCoins from a CTransaction, at a given height
-    Claim_CCoins(const Bitcoin_CTransaction &tx, int nHeightIn, const ClaimSum& claimSum) : fCoinBase(tx.IsCoinBase()), nHeight(nHeightIn), nVersion(tx.nVersion) {
+    Claim_CCoins(const Bitcoin_CTransactionCompressed &tx, int nHeightIn, const ClaimSum& claimSum) : fCoinBase(tx.IsCoinBase()), nHeight(nHeightIn), nVersion(tx.nVersion) {
 
 		if(fCoinBase) {
 			const int64_t nTotalReduceFees = claimSum.nValueOriginalSum - claimSum.nValueClaimableSum;
 			const int64_t nTotalValueOut = tx.GetValueOut();
-			BOOST_FOREACH(const CTxOut & txout, tx.vout) {
+			for (unsigned int i = 0; i < tx.vout.size(); i++) {
+				const CTxOut & txout = tx.vout[i];
 				const int64_t nValue = txout.nValue;
+
 				const int64_t nFractionReducedFee = ReduceByFraction(nTotalReduceFees, nValue, nTotalValueOut);
 				int64_t nValueClaimable = 0;
 				if(nValue > nFractionReducedFee) {
 					nValueClaimable = nValue - nFractionReducedFee;
 				}
-				assert(nValueClaimable >= 0 && nValueClaimable <= nValue);
+				assert((nValueClaimable >= 0 && nValueClaimable <= nValue) || !tx.voutSpendable[i]);
 
 				vout.push_back(CTxOutClaim(nValue, nValueClaimable, txout.scriptPubKey));
 			}
 		} else {
-			BOOST_FOREACH(const CTxOut & txout, tx.vout) {
+			for (unsigned int i = 0; i < tx.vout.size(); i++) {
+				const CTxOut & txout = tx.vout[i];
 				const int64_t nValue = txout.nValue;
+
 				const int64_t nValueClaimable = ReduceByFraction(nValue, claimSum.nValueClaimableSum, claimSum.nValueOriginalSum);
-				assert(nValueClaimable >= 0 && nValueClaimable <= nValue);
+				assert((nValueClaimable >= 0 && nValueClaimable <= nValue) || !tx.voutSpendable[i]);
 
 				vout.push_back(CTxOutClaim(nValue, nValueClaimable, txout.scriptPubKey));
 			}
@@ -379,6 +383,29 @@ public:
 
     	ClearUnspendable();
     }
+    //This constructor has only one usage. NB it must NOT be used for anything else!
+    //1. To create an object that can be compared with equalsForBlockCompressedAttributes
+    Claim_CCoins(const Bitcoin_CTransactionCompressed &tx, int nHeightIn) : fCoinBase(tx.IsCoinBase()), nHeight(nHeightIn), nVersion(tx.nVersion) {
+        if(tx.IsCreatedFromBlock()) {
+        	BOOST_FOREACH(const CTxOut & txout, tx.vout) {
+        		vout.push_back(CTxOutClaim(txout.nValue, 0, txout.scriptPubKey));
+        	}
+        } else {
+        	//Add dummy Bitcoin_CTxOut to use for comparison
+			for (unsigned int i = 0; i < tx.voutSpendable.size(); i++) {
+				CScript dummyScript;
+				if(tx.voutSpendable[i]) {
+					dummyScript << OP_NOP;
+				} else {
+					dummyScript << OP_RETURN;
+				}
+				vout.push_back(CTxOutClaim(0, 0, dummyScript));
+			}
+        }
+
+        ClearUnspendable();
+    }
+
     bool equalsExcludingClaimable(const Claim_CCoins &b) {
          // Empty Claim_CCoins objects are always equal.
          if (IsPruned() && b.IsPruned()) {
@@ -403,6 +430,25 @@ public:
                  return false;
              }
      	}
+     	return true;
+    }
+
+    bool equalsForBlockCompressedAttributes(const Claim_CCoins &b) {
+        // Empty Bitcoin_CCoins objects are always equal.
+        if (IsPruned() && b.IsPruned()) {
+            return true;
+        }
+
+        if (fCoinBase != b.fCoinBase ||
+               nHeight != b.nHeight ||
+               nVersion != b.nVersion) {
+       	 return false;
+        }
+
+         if(vout.size() != b.vout.size()) {
+        	 return false;
+         }
+
      	return true;
     }
 
@@ -730,7 +776,7 @@ public:
         @return	Sum of value of all inputs (scriptSigs)
      */
     int64_t Credits_GetValueIn(const Credits_CTransaction& tx);
-    void Claim_GetValueIn(const Bitcoin_CTransaction& tx, ClaimSum& claimSum);
+    void Claim_GetValueIn(const Bitcoin_CTransactionCompressed& tx, ClaimSum& claimSum);
     int64_t Claim_GetValueIn(const Credits_CTransaction& tx);
 
     // Check whether all prevouts of the transaction are present in the UTXO set represented by this view
