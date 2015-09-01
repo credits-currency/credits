@@ -776,7 +776,6 @@ public:
         @return	Sum of value of all inputs (scriptSigs)
      */
     int64_t Credits_GetValueIn(const Credits_CTransaction& tx);
-    void Claim_GetValueIn(const Bitcoin_CTransactionCompressed& tx, ClaimSum& claimSum);
     int64_t Claim_GetValueIn(const Credits_CTransaction& tx);
 
     // Check whether all prevouts of the transaction are present in the UTXO set represented by this view

@@ -1449,10 +1449,21 @@ void Bitcoin_UpdateTime(Bitcoin_CBlockHeader& block, const Bitcoin_CBlockIndex* 
 
 
 
-
-void Claim_SpendInput(const COutPoint &prevout, Credits_CCoinsViewCache &inputs, Bitcoin_CTxUndoClaim &txundo) {
+void Claim_SpendInput(const COutPoint &prevout, Credits_CCoinsViewCache &inputs, Bitcoin_CTxUndoClaim &txundo, ClaimSum *inputSum = NULL) {
 	Claim_CCoins &coins = inputs.Claim_GetCoins(prevout.hash);
-	Bitcoin_CTxInUndoClaim undo;
+
+	//Collect the sum for the inputs
+    if(inputSum != NULL) {
+		assert(coins.IsAvailable(prevout.n));
+		const CTxOutClaim & txout = coins.vout[prevout.n];
+
+		inputSum->nValueOriginalSum += txout.nValueOriginal;
+		if(txout.nValueClaimable > 0) {
+			inputSum->nValueClaimableSum += txout.nValueClaimable;
+		}
+    }
+
+    Bitcoin_CTxInUndoClaim undo;
     bool ret = coins.Spend(prevout, undo);
     assert(ret);
     txundo.vprevout.push_back(undo);
@@ -1489,16 +1500,18 @@ void Bitcoin_UpdateCoinsForClaim(const Bitcoin_CTransactionCompressed& tx, CVali
 {
 	assert(!tx.IsCoinBase());
 
-	//Store the two different levels of values before spending.
-	//These two are used to calculate the difference between the
-	//original and the claimable state
+	//Store the sum of the two different levels of values
+	//These two are used to calculate the difference between the original and the claimable state
 	ClaimSum claimSum;
-	inputs.Claim_GetValueIn(tx, claimSum);
-	claimSum.Validate();
 
     bool ret;
 
     // mark inputs spent
+	BOOST_FOREACH(const COutPoint &prevout, tx.vin) {
+    	Claim_SpendInput(prevout, inputs, txundo, &claimSum);
+	}
+	claimSum.Validate();
+
 	//Reduce the fee with the fraction that has already been claimed
 	const int64_t nFeeOriginal = claimSum.nValueOriginalSum-tx.GetValueOut();
 	const int64_t nFeeClaimable = ReduceByFraction(nFeeOriginal, claimSum.nValueClaimableSum, claimSum.nValueOriginalSum);
@@ -1506,10 +1519,6 @@ void Bitcoin_UpdateCoinsForClaim(const Bitcoin_CTransactionCompressed& tx, CVali
 
 	nFeesOriginal += nFeeOriginal;
 	nFeesClaimable += nFeeClaimable;
-
-	BOOST_FOREACH(const COutPoint &prevout, tx.vin) {
-    	Claim_SpendInput(prevout, inputs, txundo);
-	}
 
     // add outputs
     ret = inputs.Claim_SetCoins(txhash, Claim_CCoins(tx, nHeight, claimSum));
