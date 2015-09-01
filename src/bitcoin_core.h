@@ -284,7 +284,7 @@ public:
     }
 
     bool HasSpendable() const {
-        BOOST_FOREACH(const int& spendable, voutSpendable) {
+        BOOST_FOREACH(const bool& spendable, voutSpendable) {
         	if(spendable) {
         		return true;
         	}
