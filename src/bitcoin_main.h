@@ -352,7 +352,7 @@ public:
             filein >> hashChecksum;
         }
         catch (std::exception &e) {
-            return error("Bitcoin: %s : Deserialize or I/O error - %s", __func__, e.what());
+            return error("Bitcoin: Bitcoin_CBlockCompressed: %s : Deserialize or I/O error - %s", __func__, e.what());
         }
 
         // Verify hash
@@ -412,7 +412,7 @@ public:
         // Open history file to read
         CAutoFile filein = CAutoFile(readFromFile, SER_DISK, netParams->ClientVersion());
         if (!filein)
-            return error("Bitcoin: CBlockUndo::ReadFromDisk : OpenBlockFile failed");
+            return error("Bitcoin: Bitcoin_CBlockUndo::ReadFromDisk : OpenBlockFile failed");
 
         // Read block
         uint256 hashChecksum;
@@ -421,7 +421,7 @@ public:
             filein >> hashChecksum;
         }
         catch (std::exception &e) {
-            return error("Bitcoin: %s : Deserialize or I/O error - %s", __func__, e.what());
+            return error("Bitcoin: Bitcoin_CBlockUndo: %s : Deserialize or I/O error - %s", __func__, e.what());
         }
 
         // Verify checksum
@@ -491,7 +491,7 @@ public:
             filein >> hashChecksum;
         }
         catch (std::exception &e) {
-            return error("Bitcoin: %s : Deserialize or I/O error - %s", __func__, e.what());
+            return error("Bitcoin: Bitcoin_CBlockUndoClaim: %s : Deserialize or I/O error - %s", __func__, e.what());
         }
 
         // Verify checksum

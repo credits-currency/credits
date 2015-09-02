@@ -105,7 +105,7 @@ bool Bitcoin_CCoinsViewDB::GetStats(Bitcoin_CCoinsStats &stats) {
             }
             pcursor->Next();
         } catch (std::exception &e) {
-            return error("%s : Deserialize or I/O error - %s", __func__, e.what());
+            return error("Bitcoin_CCoinsViewDB: %s : Deserialize or I/O error - %s", __func__, e.what());
         }
     }
     delete pcursor;
@@ -263,7 +263,7 @@ bool Bitcoin_CBlockTreeDB::LoadBlockIndexGuts()
                 break; // if shutdown requested or finished loading block index
             }
         } catch (std::exception &e) {
-            return error("%s : Deserialize or I/O error - %s", __func__, e.what());
+            return error("Bitcoin_CBlockTreeDB: %s : Deserialize or I/O error - %s", __func__, e.what());
         }
     }
     delete pcursor;

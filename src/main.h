@@ -340,7 +340,7 @@ public:
         // Open history file to read
         CAutoFile filein = CAutoFile(Credits_OpenUndoFile(pos, true), SER_DISK, netParams->ClientVersion());
         if (!filein)
-            return error("Credits: CBlockUndo::ReadFromDisk : OpenBlockFile failed");
+            return error("Credits_CBlockUndo::ReadFromDisk : OpenBlockFile failed");
 
         // Read block
         uint256 hashChecksum;
@@ -349,7 +349,7 @@ public:
             filein >> hashChecksum;
         }
         catch (std::exception &e) {
-            return error("Credits: %s : Deserialize or I/O error - %s", __func__, e.what());
+            return error("Credits_CBlockUndo: %s : Deserialize or I/O error - %s", __func__, e.what());
         }
 
         // Verify checksum
@@ -357,7 +357,7 @@ public:
         hasher << hashBlock;
         hasher << *this;
         if (hashChecksum != hasher.GetHash())
-            return error("Credits: CBlockUndo::ReadFromDisk : Checksum mismatch");
+            return error("Credits_CBlockUndo::ReadFromDisk : Checksum mismatch");
 
         return true;
     }

@@ -207,7 +207,7 @@ bool Credits_CCoinsViewDB::Credits_GetStats(Credits_CCoinsStats &stats) {
             }
             pcursor->Next();
         } catch (std::exception &e) {
-            return error("%s : Deserialize or I/O error - %s", __func__, e.what());
+            return error("%s : Credits_CCoinsViewDB: Deserialize or I/O error - %s", __func__, e.what());
         }
     }
     delete pcursor;
@@ -267,7 +267,7 @@ bool Credits_CCoinsViewDB::Claim_GetStats(Claim_CCoinsStats &stats) {
             }
             pcursor->Next();
         } catch (std::exception &e) {
-            return error("%s : Deserialize or I/O error - %s", __func__, e.what());
+            return error("%s : Credits_CCoinsViewDB: Deserialize or I/O error - %s", __func__, e.what());
         }
     }
     delete pcursor;
@@ -400,7 +400,7 @@ bool Credits_CBlockTreeDB::LoadBlockIndexGuts()
                 break; // if shutdown requested or finished loading block index
             }
         } catch (std::exception &e) {
-            return error("%s : Deserialize or I/O error - %s", __func__, e.what());
+            return error("%s : Credits_CBlockTreeDB: Deserialize or I/O error - %s", __func__, e.what());
         }
     }
     delete pcursor;

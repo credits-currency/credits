@@ -2162,7 +2162,7 @@ bool CAddrDB::Read(CAddrMan& addr)
         filein >> hashIn;
     }
     catch (std::exception &e) {
-        return error("%s : Deserialize or I/O error - %s", __func__, e.what());
+        return error("%s : CAddrDB: Deserialize or I/O error - %s", __func__, e.what());
     }
     filein.fclose();
 
@@ -2171,7 +2171,7 @@ bool CAddrDB::Read(CAddrMan& addr)
     // verify stored checksum matches input data
     uint256 hashTmp = Hash(ssPeers.begin(), ssPeers.end());
     if (hashIn != hashTmp)
-        return error("%s : Checksum mismatch, data corrupted", __func__);
+        return error("%s : CAddrDB: Checksum mismatch, data corrupted", __func__);
 
     unsigned char pchMsgTmp[4];
     try {
@@ -2180,13 +2180,13 @@ bool CAddrDB::Read(CAddrMan& addr)
 
         // ... verify the network matches ours
         if (memcmp(pchMsgTmp, messageStart, sizeof(pchMsgTmp)))
-            return error("%s : Invalid network magic number", __func__);
+            return error("%s : CAddrDB: Invalid network magic number", __func__);
 
         // de-serialize address data into one CAddrMan object
         ssPeers >> addr;
     }
     catch (std::exception &e) {
-        return error("%s : Deserialize or I/O error - %s", __func__, e.what());
+        return error("%s : CAddrDB: Deserialize or I/O error - %s", __func__, e.what());
     }
 
     return true;

@@ -1054,11 +1054,11 @@ bool Bitcredit_GetTransaction(const uint256 &hash, Credits_CTransaction &txOut, 
                     fseek(file, postx.nTxOffset, SEEK_CUR);
                     file >> txOut;
                 } catch (std::exception &e) {
-                    return error("Credits: %s : Deserialize or I/O error - %s", __func__, e.what());
+                    return error("Credits: Bitcredit_GetTransaction: %s : Deserialize or I/O error - %s", __func__, e.what());
                 }
                 hashBlock = header.GetHash();
                 if (txOut.GetHash() != hash)
-                    return error("Credits: %s : txid mismatch", __func__);
+                    return error("Credits: Bitcredit_GetTransaction: %s : txid mismatch", __func__);
                 return true;
             }
         }
@@ -1142,7 +1142,7 @@ bool Credits_ReadBlockFromDisk(Credits_CBlock& block, const CDiskBlockPos& pos)
         filein >> block;
     }
     catch (std::exception &e) {
-        return error("Credits: %s : Deserialize or I/O error - %s", __func__, e.what());
+        return error("Credits_ReadBlockFromDisk: %s : Deserialize or I/O error - %s", __func__, e.what());
     }
 
     // Check the header
@@ -3678,7 +3678,7 @@ bool Bitcredit_LoadExternalBlockFile(FILE* fileIn, CDiskBlockPos *dbp)
                         break;
                 }
             } catch (std::exception &e) {
-                LogPrintf("Credits: %s : Deserialize or I/O error - %s", __func__, e.what());
+                LogPrintf("Bitcredit_LoadExternalBlockFile: %s : Deserialize or I/O error - %s", __func__, e.what());
             }
         }
         fclose(fileIn);

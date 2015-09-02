@@ -987,11 +987,11 @@ bool Bitcoin_GetTransaction(const uint256 &hash, Bitcoin_CTransaction &txOut, ui
                     fseek(file, postx.nTxOffset, SEEK_CUR);
                     file >> txOut;
                 } catch (std::exception &e) {
-                    return error("Bitcoin: %s : Deserialize or I/O error - %s", __func__, e.what());
+                    return error("Bitcoin_GetTransaction: %s : Deserialize or I/O error - %s", __func__, e.what());
                 }
                 hashBlock = header.GetHash();
                 if (txOut.GetHash() != hash)
-                    return error("Bitcoin: %s : txid mismatch", __func__);
+                    return error("Bitcoin_GetTransaction: %s : txid mismatch", __func__);
                 return true;
             }
         }
@@ -1071,19 +1071,19 @@ bool Bitcoin_ReadBlockFromDisk(Bitcoin_CBlock& block, const CDiskBlockPos& pos)
     // Open history file to read
     CAutoFile filein = CAutoFile(Bitcoin_OpenBlockFile(pos, true), SER_DISK, Bitcoin_Params().ClientVersion());
     if (!filein)
-        return error("Bitcoin: ReadBlockFromDisk : OpenBlockFile failed");
+        return error("Bitcoin_ReadBlockFromDisk : OpenBlockFile failed");
 
     // Read block
     try {
         filein >> block;
     }
     catch (std::exception &e) {
-        return error("Bitcoin: %s : Deserialize or I/O error - %s", __func__, e.what());
+        return error("Bitcoin_ReadBlockFromDisk: %s : Deserialize or I/O error - %s", __func__, e.what());
     }
 
     // Check the header
     if (!Bitcoin_CheckProofOfWork(block.GetHash(), block.nBits))
-        return error("Bitcoin: ReadBlockFromDisk : Errors in block header");
+        return error("Bitcoin_ReadBlockFromDisk : Errors in block header");
 
     return true;
 }
@@ -2528,7 +2528,7 @@ bool Bitcoin_CheckTrimBlockFile(CValidationState &state, FILE* fileIn, const int
                     nLoaded++;
                 }
             } catch (std::exception &e) {
-                LogPrintf("Bitcoin: %s : Deserialize or I/O error - %s", __func__, e.what());
+                LogPrintf("Bitcoin_CheckTrimBlockFile: %s : Deserialize or I/O error - %s", __func__, e.what());
             }
         }
         fclose(fileIn);
@@ -2598,7 +2598,7 @@ bool Bitcoin_CheckTrimCompressedFile(CValidationState &state, FILE* fileIn, cons
                     nLoaded++;
                 }
             } catch (std::exception &e) {
-                LogPrintf("Bitcoin: %s : Deserialize or I/O error - %s", __func__, e.what());
+                LogPrintf("Bitcoin_CheckTrimCompressedFile: %s : Deserialize or I/O error - %s", __func__, e.what());
             }
         }
         fclose(fileIn);
@@ -2673,7 +2673,7 @@ bool Bitcoin_CreateCompressedBlockFile(CValidationState &state, const CDiskBlock
 						nLoaded++;
 					}
 				} catch (std::exception &e) {
-					LogPrintf("Bitcoin: %s : Deserialize or I/O error - %s", __func__, e.what());
+					LogPrintf("Bitcoin_CreateCompressedBlockFile: %s : Deserialize or I/O error - %s", __func__, e.what());
 				}
 			}
 			fclose(fileIn);
@@ -4200,7 +4200,7 @@ bool Bitcoin_LoadExternalBlockFile(FILE* fileIn, CDiskBlockPos *dbp)
                         break;
                 }
             } catch (std::exception &e) {
-                LogPrintf("Bitcoin: %s : Deserialize or I/O error - %s", __func__, e.what());
+                LogPrintf("Bitcoin_LoadExternalBlockFile: %s : Deserialize or I/O error - %s", __func__, e.what());
             }
         }
         fclose(fileIn);
