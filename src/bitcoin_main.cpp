@@ -2883,11 +2883,9 @@ bool static Bitcoin_ConnectTip(CValidationState &state, Bitcoin_CBlockIndex *pin
     // Update chainActive & related variables.
     Bitcoin_UpdateTip(pindexNew);
 
-    if(fastForwardClaimState) {
-    	if (!Bitcoin_TrimBlockHistory(state)) {
-    		return error("Bitcoin: ConnectTip() : Could not trim block history!");
-    	}
-    }
+	if (!Bitcoin_TrimBlockHistory(state)) {
+		return error("Bitcoin: ConnectTip() : Could not trim block history!");
+	}
 
     // Tell wallet about transactions that went from mempool
     // to conflicted:
