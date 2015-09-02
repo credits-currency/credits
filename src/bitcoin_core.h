@@ -171,6 +171,7 @@ public:
     {
         SetNull();
 
+        nVersion = tx.nVersion;
 		txHash = tx.GetHash();
 		valueOut = tx.GetValueOut();
 		isCoinBase = isCoinBaseIn;
