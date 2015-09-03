@@ -157,35 +157,26 @@ public:
     static const int CURRENT_VERSION=1;
     int nVersion;
 	uint256 txHash;
-    int64_t valueOut;
     std::vector<COutPoint> vin;
-    //Only holds info whether the out is spendable or not. 0 == unspendable, 1 == spendable
-    std::vector<bool> voutSpendable;
+    std::vector<CTxOut> vout;
 
-    //Memory only
+    //Memory only, must be set from Bitcoin_CBlockCompressed on Unserialize and on creation
     bool isCoinBase;
-   std::vector<CTxOut> vout;
-    bool isCreatedFromBlock;
 
-    Bitcoin_CTransactionCompressed(const Bitcoin_CTransaction &tx, bool isCoinBaseIn)
+    Bitcoin_CTransactionCompressed(const Bitcoin_CTransaction &tx)
     {
         SetNull();
 
         nVersion = tx.nVersion;
 		txHash = tx.GetHash();
-		valueOut = tx.GetValueOut();
-		isCoinBase = isCoinBaseIn;
 		vin.reserve(tx.vin.size());
 		for (unsigned int j = 0; j < tx.vin.size(); j++) {
 			vin.push_back(tx.vin[j].prevout);
 		}
-		voutSpendable.reserve(tx.vout.size());
 		vout.reserve(tx.vout.size());
 		for (unsigned int j = 0; j < tx.vout.size(); j++) {
-			voutSpendable.push_back(!tx.vout[j].scriptPubKey.IsUnspendable());
 			vout.push_back(tx.vout[j]);
 		}
-		isCreatedFromBlock = true;
     }
 
     Bitcoin_CTransactionCompressed()
@@ -199,14 +190,13 @@ public:
         nSize += ::GetSerializeSize(VARINT(this->nVersion), nType, nVersion);
         nVersion = this->nVersion;
         nSize += ::GetSerializeSize(txHash, nType, nVersion);
-        const uint64_t nValOut = CTxOutCompressor::CompressAmount(valueOut);
-        nSize += ::GetSerializeSize(VARINT(nValOut), nType, nVersion);
         nSize += ::GetSerializeSize(vin, nType, nVersion);
-    	//Size indicator
-    	unsigned int nSpendableSize = voutSpendable.size();
-        nSize += ::GetSerializeSize(VARINT(nSpendableSize), nType, nVersion);
-        //Bit array of spentness
-        nSize += nSpendableSize;
+    	//Size indicator for vout
+    	unsigned int nVoutSize = vout.size();
+        nSize += ::GetSerializeSize(VARINT(nVoutSize), nType, nVersion);
+        // txouts themself
+        for (unsigned int i = 0; i < vout.size(); i++)
+        	nSize += ::GetSerializeSize(CTxOutCompressor(REF(vout[i])), nType, nVersion);
         return nSize;
     }
 
@@ -216,19 +206,13 @@ public:
         ::Serialize(s, VARINT(this->nVersion), nType, nVersion);
         nVersion = this->nVersion;
         ::Serialize(s, txHash, nType, nVersion);
-        const uint64_t nValOut = CTxOutCompressor::CompressAmount(valueOut);
-        ::Serialize(s, VARINT(nValOut), nType, nVersion);
         ::Serialize(s, vin, nType, nVersion);
-    	//Size indicator
-    	unsigned int nSpendableSize = voutSpendable.size();
-        ::Serialize(s, VARINT(nSpendableSize), nType, nVersion);
-        //Bit array of spentness
-        for (unsigned int b = 0; b*8 < nSpendableSize; b++) {
-            unsigned char output = 0;
-            for (unsigned int i = 0; i < 8 && b*8+i < nSpendableSize; i++) {
-            	output |= (voutSpendable[b*8+i] << i);
-            }
-            ::Serialize(s, output, nType, nVersion);
+    	//Size indicator for vout
+    	unsigned int nVoutSize = vout.size();
+        ::Serialize(s, VARINT(nVoutSize), nType, nVersion);
+        // txouts themself
+        for (unsigned int i = 0; i < nVoutSize; i++) {
+        	::Serialize(s, CTxOutCompressor(REF(vout[i])), nType, nVersion);
         }
     }
 
@@ -238,20 +222,14 @@ public:
         ::Unserialize(s, VARINT(this->nVersion), nType, nVersion);
         nVersion = this->nVersion;
         ::Unserialize(s, txHash, nType, nVersion);
-        uint64_t nValOut = 0;
-        ::Unserialize(s, VARINT(nValOut), nType, nVersion);
-        valueOut = CTxOutCompressor::DecompressAmount(nValOut);
         ::Unserialize(s, vin, nType, nVersion);
-    	//Size indicator
-    	unsigned int nSpendableSize = 0;
-        ::Unserialize(s, VARINT(nSpendableSize), nType, nVersion);
-        //Bit array of spentness
-        for (unsigned int b = 0; b*8 < nSpendableSize; b++) {
-            unsigned char input = 0;
-            ::Unserialize(s, input, nType, nVersion);
-		   for(int i = 0; i < 8 && b*8+i < nSpendableSize; i++) {
-			   voutSpendable.push_back(input & (1 << i));
-		   }
+    	//Size indicator for vout
+    	unsigned int nVoutSize = 0;
+        ::Unserialize(s, VARINT(nVoutSize), nType, nVersion);
+        // txouts themself
+        vout.assign(nVoutSize, CTxOut());
+        for (unsigned int i = 0; i < nVoutSize; i++) {
+         	::Unserialize(s, REF(CTxOutCompressor(vout[i])), nType, nVersion);
         }
     }
 
@@ -260,12 +238,9 @@ public:
     {
         nVersion = Bitcoin_CTransaction::CURRENT_VERSION;
     	txHash = uint256(0);
-        valueOut = 0;
         vin.clear();
-        voutSpendable.clear();
-        isCoinBase = false;
         vout.clear();
-        isCreatedFromBlock = false;
+        isCoinBase = false;
     }
 
     const uint256& GetHash() const {
@@ -276,21 +251,16 @@ public:
     	return isCoinBase;
     }
 
-    bool IsCreatedFromBlock() const {
-    	return isCreatedFromBlock;
-    }
-
-    int64_t GetValueOut() const {
-    	return valueOut;
-    }
-
-    bool HasSpendable() const {
-        BOOST_FOREACH(const bool& spendable, voutSpendable) {
-        	if(spendable) {
-        		return true;
-        	}
+    int64_t GetValueOut() const
+    {
+        int64_t nValueOut = 0;
+        BOOST_FOREACH(const CTxOut& txout, vout)
+        {
+            nValueOut += txout.nValue;
+            if (!Bitcoin_MoneyRange(txout.nValue) || !Bitcoin_MoneyRange(nValueOut))
+                throw std::runtime_error("Bitcoin_CTransaction::GetValueOut() : value out of range");
         }
-        return false;
+        return nValueOut;
     }
 };
 

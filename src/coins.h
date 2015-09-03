@@ -352,7 +352,7 @@ public:
 				if(nValue > nFractionReducedFee) {
 					nValueClaimable = nValue - nFractionReducedFee;
 				}
-				assert((nValueClaimable >= 0 && nValueClaimable <= nValue) || !tx.voutSpendable[i]);
+				assert((nValueClaimable >= 0 && nValueClaimable <= nValue) || tx.vout[i].scriptPubKey.IsUnspendable());
 
 				vout.push_back(CTxOutClaim(nValue, nValueClaimable, txout.scriptPubKey));
 			}
@@ -362,7 +362,7 @@ public:
 				const int64_t nValue = txout.nValue;
 
 				const int64_t nValueClaimable = ReduceByFraction(nValue, claimSum.nValueClaimableSum, claimSum.nValueOriginalSum);
-				assert((nValueClaimable >= 0 && nValueClaimable <= nValue) || !tx.voutSpendable[i]);
+				assert((nValueClaimable >= 0 && nValueClaimable <= nValue) || tx.vout[i].scriptPubKey.IsUnspendable());
 
 				vout.push_back(CTxOutClaim(nValue, nValueClaimable, txout.scriptPubKey));
 			}
@@ -385,27 +385,14 @@ public:
     	ClearUnspendable();
     }
     //This constructor has only one usage. NB it must NOT be used for anything else!
-    //1. To create an object that can be compared with equalsForBlockCompressedAttributes
+    //1. To create an object that can be compared with equalsExcludingClaimable
     Claim_CCoins(const Bitcoin_CTransactionCompressed &tx, int nHeightIn) : fCoinBase(tx.IsCoinBase()), nHeight(nHeightIn), nVersion(tx.nVersion) {
         vout.reserve(tx.vout.size());
-        if(tx.IsCreatedFromBlock()) {
-        	BOOST_FOREACH(const CTxOut & txout, tx.vout) {
-        		vout.push_back(CTxOutClaim(txout.nValue, 0, txout.scriptPubKey));
-        	}
-        } else {
-        	//Add dummy Bitcoin_CTxOut to use for comparison
-			for (unsigned int i = 0; i < tx.voutSpendable.size(); i++) {
-				CScript dummyScript;
-				if(tx.voutSpendable[i]) {
-					dummyScript << OP_NOP;
-				} else {
-					dummyScript << OP_RETURN;
-				}
-				vout.push_back(CTxOutClaim(0, 0, dummyScript));
-			}
-        }
+    	BOOST_FOREACH(const CTxOut & txout, tx.vout) {
+    		vout.push_back(CTxOutClaim(txout.nValue, 0, txout.scriptPubKey));
+    	}
 
-        ClearUnspendable();
+    	ClearUnspendable();
     }
 
     bool equalsExcludingClaimable(const Claim_CCoins &b) {
@@ -432,25 +419,6 @@ public:
                  return false;
              }
      	}
-     	return true;
-    }
-
-    bool equalsForBlockCompressedAttributes(const Claim_CCoins &b) {
-        // Empty Bitcoin_CCoins objects are always equal.
-        if (IsPruned() && b.IsPruned()) {
-            return true;
-        }
-
-        if (fCoinBase != b.fCoinBase ||
-               nHeight != b.nHeight ||
-               nVersion != b.nVersion) {
-       	 return false;
-        }
-
-         if(vout.size() != b.vout.size()) {
-        	 return false;
-         }
-
      	return true;
     }
 

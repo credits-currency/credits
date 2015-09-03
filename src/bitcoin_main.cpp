@@ -1676,15 +1676,9 @@ void RevertCoinClaim(const Bitcoin_CTransactionCompressed &tx, Bitcoin_CBlockInd
     // but it must be corrected before txout nversion ever influences a network rule.
     if (outsBlock.nVersion < 0)
         outs.nVersion = outsBlock.nVersion;
-    if(tx.IsCreatedFromBlock()) {
-		if(!outs.equalsExcludingClaimable(outsBlock)) {
-			fClean = fClean && error("Bitcoin: DisconnectBlockForClaim() : added transaction mismatch? database corrupted, \nfrom disk chainstate: \n%s, \nrecreated from block tx: \n%s", outs.ToString(), outsBlock.ToString());
-		}
-    } else {
-		if(!outs.equalsForBlockCompressedAttributes(outsBlock)) {
-			fClean = fClean && error("Bitcoin: DisconnectBlockForClaim() : added transaction mismatch? database corrupted, \nfrom disk chainstate: \n%s, \nrecreated from compressed block tx: \n%s", outs.ToString(), outsBlock.ToString());
-		}
-    }
+	if(!outs.equalsExcludingClaimable(outsBlock)) {
+		fClean = fClean && error("Bitcoin: DisconnectBlockForClaim() : added transaction mismatch? database corrupted, \nfrom disk chainstate: \n%s, \nrecreated from block tx: \n%s", outs.ToString(), outsBlock.ToString());
+	}
     // remove outputs
     outs = Claim_CCoins();
 }
@@ -2438,7 +2432,6 @@ bool ReadBitcoinBlockToCompressed(CValidationState &state, Bitcoin_CBlockIndex *
 	if(bitcoin_fTrimBlockFiles) {
 		const CDiskBlockPos pos = pindex->GetCompressedPos();
 	    if (!pos.IsNull() && blockCompressed.ReadFromDisk(Bitcoin_OpenCompressedFile(pos, true), pos, pindex->GetBlockHash(), Bitcoin_NetParams())) {
-	    	blockCompressed.vtx[0].isCoinBase = true;
 	    	compressedBlockFound = true;
 	    }
     }

@@ -282,8 +282,9 @@ public:
 
         nTime = block.nTime;
         for (unsigned int i = 0; i < block.vtx.size(); i++) {
-    		vtx.push_back(Bitcoin_CTransactionCompressed(block.vtx[i], i == 0));
+    		vtx.push_back(Bitcoin_CTransactionCompressed(block.vtx[i]));
     	}
+        vtx[0].isCoinBase = true;
         blockHash = block.GetHash();
     }
 
@@ -359,6 +360,7 @@ public:
         if (hashChecksum != hashBlock)
             return error("Bitcoin: Bitcoin_CBlockCompressed::ReadFromDisk : hash mismatch");
 
+    	vtx[0].isCoinBase = true;
         blockHash = hashBlock;
 
         return true;
