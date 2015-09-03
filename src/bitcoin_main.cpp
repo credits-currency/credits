@@ -2738,16 +2738,15 @@ bool Bitcoin_TrimBlockHistory(CValidationState &state) {
 							FileCommit(fileTrim);
 							fclose(fileTrim);
 						}
-					}
 
-					//TODO - Do both sections below belong here?
-
-					//TODO - This should probably move to compressed trim
-					fileTrim = Bitcoin_OpenUndoFileClaim(pos);
-					if (fileTrim) {
-						TruncateFile(fileTrim, 0);
-						FileCommit(fileTrim);
-						fclose(fileTrim);
+						fileTrim = Bitcoin_OpenUndoFileClaim(pos);
+						if (fileTrim) {
+							if(!TruncateFile(fileTrim, 0)) {
+								return false;
+							}
+							FileCommit(fileTrim);
+							fclose(fileTrim);
+						}
 					}
 
 					//TODO - This is left over functionality currently used to handle switching from non-trimmed to trimmed blockchain
@@ -2805,6 +2804,15 @@ bool Bitcoin_TrimCompressedBlockHistory(CValidationState &state) {
 					}
 
 					fileTrim = Bitcoin_OpenUndoFile(pos);
+					if (fileTrim) {
+						if(!TruncateFile(fileTrim, 0)) {
+							return false;
+						}
+						FileCommit(fileTrim);
+						fclose(fileTrim);
+					}
+
+					fileTrim = Bitcoin_OpenUndoFileClaim(pos);
 					if (fileTrim) {
 						if(!TruncateFile(fileTrim, 0)) {
 							return false;
