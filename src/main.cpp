@@ -1691,10 +1691,13 @@ bool Credits_CheckInputs(const Credits_CTransaction& tx, CValidationState &state
 								error("Credits: CheckInputs() : tried to spend deposit at depth %d, depth %d is required", bitcredit_nSpendHeight - coins.nHeight, Credits_Params().DepositLockDepth()),
 								BITCREDIT_REJECT_INVALID, "bad-txns-premature-spend-of-deposit");
 					} else {
-						if (bitcredit_nSpendHeight - coins.nHeight < BITCREDIT_COINBASE_MATURITY)
-							return state.Invalid(
-								error("Credits: CheckInputs() : tried to spend deposit change at depth %d, depth %d is required", bitcredit_nSpendHeight - coins.nHeight, BITCREDIT_COINBASE_MATURITY),
-								BITCREDIT_REJECT_INVALID, "bad-txns-premature-spend-of-deposit-change");
+						//A deposit change cannot be spent until coinbase maturity UNLESS the spending tx is a deposit itself
+						//This is to make it possible to chain deposits, with each following deposit directly spending a previous deposit change.
+						if(!tx.IsDeposit())
+							if (bitcredit_nSpendHeight - coins.nHeight < BITCREDIT_COINBASE_MATURITY)
+								return state.Invalid(
+									error("Credits: CheckInputs() : tried to spend deposit change at depth %d, depth %d is required", bitcredit_nSpendHeight - coins.nHeight, BITCREDIT_COINBASE_MATURITY),
+									BITCREDIT_REJECT_INVALID, "bad-txns-premature-spend-of-deposit-change");
 					}
 				}
 
