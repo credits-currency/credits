@@ -3678,7 +3678,7 @@ bool Bitcredit_LoadExternalBlockFile(FILE* fileIn, CDiskBlockPos *dbp)
                         break;
                 }
             } catch (std::exception &e) {
-                LogPrintf("Bitcredit_LoadExternalBlockFile: %s : Deserialize or I/O error - %s", __func__, e.what());
+                LogPrintf("ERROR: Bitcredit_LoadExternalBlockFile: %s : Deserialize or I/O error - %s\n", __func__, e.what());
             }
         }
         fclose(fileIn);
