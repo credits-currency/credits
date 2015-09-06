@@ -2704,36 +2704,24 @@ bool Bitcoin_TrimBlockHistory(CValidationState &state) {
 					break;
 				CDiskBlockPos pos(nFile, 0);
 				FILE *fileTrim = Bitcoin_OpenBlockFile(pos, true);
-				if (!fileTrim)
-					continue;
-				LogPrintf("Bitcoin: Scanning block file blk%05u.dat for trimming...\n", (unsigned int)nFile);
+				if (fileTrim) {
+					LogPrintf("Bitcoin: Scanning block file blk%05u.dat for trimming...\n", (unsigned int)nFile);
 
-				bool trimBlockFile = false;
-				bool fastForwardClaimStateForAll = true;
-				if(!Bitcoin_CheckTrimBlockFile(state, fileTrim, nTrimToTime, trimBlockFile, fastForwardClaimStateForAll)) {
-					return error("Bitcoin: ConnectTip() : Could not compress block history!");
-				}
-				if(trimBlockFile) {
-					LogPrintf("Bitcoin: Trimming file blk%05u.dat...\n", (unsigned int)nFile);
-
-					if(!fastForwardClaimStateForAll) {
-						if (!Bitcoin_CreateCompressedBlockFile(state, pos)) {
-							return error("Bitcoin: ConnectTip() : Could not compress block history!");
-						}
+					bool trimBlockFile = false;
+					bool fastForwardClaimStateForAll = true;
+					if(!Bitcoin_CheckTrimBlockFile(state, fileTrim, nTrimToTime, trimBlockFile, fastForwardClaimStateForAll)) {
+						return error("Bitcoin: ConnectTip() : Could not compress block history!");
 					}
+					if(trimBlockFile) {
+						LogPrintf("Bitcoin: Trimming file blk%05u.dat...\n", (unsigned int)nFile);
 
-					fileTrim = Bitcoin_OpenBlockFile(pos);
-					if (fileTrim) {
-						if(!TruncateFile(fileTrim, 0)) {
-							return false;
+						if(!fastForwardClaimStateForAll) {
+							if (!Bitcoin_CreateCompressedBlockFile(state, pos)) {
+								return error("Bitcoin: ConnectTip() : Could not compress block history!");
+							}
 						}
-						FileCommit(fileTrim);
-						fclose(fileTrim);
-					}
 
-					//Trim the undo files if we are verified in a fast forward claim state
-					if(fastForwardClaimStateForAll) {
-						fileTrim = Bitcoin_OpenUndoFile(pos);
+						fileTrim = Bitcoin_OpenBlockFile(pos);
 						if (fileTrim) {
 							if(!TruncateFile(fileTrim, 0)) {
 								return false;
@@ -2742,19 +2730,31 @@ bool Bitcoin_TrimBlockHistory(CValidationState &state) {
 							fclose(fileTrim);
 						}
 
-						fileTrim = Bitcoin_OpenUndoFileClaim(pos);
-						if (fileTrim) {
-							if(!TruncateFile(fileTrim, 0)) {
-								return false;
+						//Trim the undo files if we are verified in a fast forward claim state
+						if(fastForwardClaimStateForAll) {
+							fileTrim = Bitcoin_OpenUndoFile(pos);
+							if (fileTrim) {
+								if(!TruncateFile(fileTrim, 0)) {
+									return false;
+								}
+								FileCommit(fileTrim);
+								fclose(fileTrim);
 							}
-							FileCommit(fileTrim);
-							fclose(fileTrim);
-						}
-					}
 
-					//TODO - This is left over functionality currently used to handle switching from non-trimmed to trimmed blockchain
-					bitcoin_mainState.nTrimToTime = pTrimTo->nTime;
-					bitcoin_pblocktree->WriteTrimToTime(bitcoin_mainState.nTrimToTime);
+							fileTrim = Bitcoin_OpenUndoFileClaim(pos);
+							if (fileTrim) {
+								if(!TruncateFile(fileTrim, 0)) {
+									return false;
+								}
+								FileCommit(fileTrim);
+								fclose(fileTrim);
+							}
+						}
+
+						//TODO - This is left over functionality currently used to handle switching from non-trimmed to trimmed blockchain
+						bitcoin_mainState.nTrimToTime = pTrimTo->nTime;
+						bitcoin_pblocktree->WriteTrimToTime(bitcoin_mainState.nTrimToTime);
+					}
 				}
 				nFile++;
 			}
@@ -2786,42 +2786,42 @@ bool Bitcoin_TrimCompressedBlockHistory(CValidationState &state) {
 					break;
 				CDiskBlockPos pos(nFile, 0);
 				FILE *fileTrim = Bitcoin_OpenCompressedFile(pos, true);
-				if (!fileTrim)
-					continue;
-				LogPrintf("Bitcoin: Scanning compressed file crp%05u.dat for trimming...\n", (unsigned int)nFile);
+				if (fileTrim) {
+					LogPrintf("Bitcoin: Scanning compressed file crp%05u.dat for trimming...\n", (unsigned int)nFile);
 
-				bool trimBlockFile = false;
-				if(!Bitcoin_CheckTrimCompressedFile(state, fileTrim, nTrimToTime, trimBlockFile)) {
-					return error("Bitcoin: ConnectTip() : Could not trim compressed block history!");
-				}
-				if(trimBlockFile) {
-					LogPrintf("Bitcoin: Trimming file crp%05u.dat...\n", (unsigned int)nFile);
-
-					fileTrim = Bitcoin_OpenCompressedFile(pos);
-					if (fileTrim) {
-						if(!TruncateFile(fileTrim, 0)) {
-							return false;
-						}
-						FileCommit(fileTrim);
-						fclose(fileTrim);
+					bool trimBlockFile = false;
+					if(!Bitcoin_CheckTrimCompressedFile(state, fileTrim, nTrimToTime, trimBlockFile)) {
+						return error("Bitcoin: ConnectTip() : Could not trim compressed block history!");
 					}
+					if(trimBlockFile) {
+						LogPrintf("Bitcoin: Trimming file crp%05u.dat...\n", (unsigned int)nFile);
 
-					fileTrim = Bitcoin_OpenUndoFile(pos);
-					if (fileTrim) {
-						if(!TruncateFile(fileTrim, 0)) {
-							return false;
+						fileTrim = Bitcoin_OpenCompressedFile(pos);
+						if (fileTrim) {
+							if(!TruncateFile(fileTrim, 0)) {
+								return false;
+							}
+							FileCommit(fileTrim);
+							fclose(fileTrim);
 						}
-						FileCommit(fileTrim);
-						fclose(fileTrim);
-					}
 
-					fileTrim = Bitcoin_OpenUndoFileClaim(pos);
-					if (fileTrim) {
-						if(!TruncateFile(fileTrim, 0)) {
-							return false;
+						fileTrim = Bitcoin_OpenUndoFile(pos);
+						if (fileTrim) {
+							if(!TruncateFile(fileTrim, 0)) {
+								return false;
+							}
+							FileCommit(fileTrim);
+							fclose(fileTrim);
 						}
-						FileCommit(fileTrim);
-						fclose(fileTrim);
+
+						fileTrim = Bitcoin_OpenUndoFileClaim(pos);
+						if (fileTrim) {
+							if(!TruncateFile(fileTrim, 0)) {
+								return false;
+							}
+							FileCommit(fileTrim);
+							fclose(fileTrim);
+						}
 					}
 				}
 				nFile++;
