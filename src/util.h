@@ -189,6 +189,7 @@ bool TryCreateDirectory(const boost::filesystem::path& p);
 bool TryRemoveDirectory(const boost::filesystem::path& p);
 boost::filesystem::path GetDefaultDataDir();
 const boost::filesystem::path &GetDataDir(bool fNetSpecific = true);
+const boost::filesystem::path &GetTmpDataDir();
 boost::filesystem::path GetConfigFile();
 boost::filesystem::path GetPidFile();
 #ifndef WIN32

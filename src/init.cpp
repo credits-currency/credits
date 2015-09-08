@@ -283,7 +283,8 @@ std::string HelpMessage(HelpMessageMode hmm)
     strUsage += "  -bitcoin_loadblock=<file>         " + _("Same as above, for bitcoin") + "\n";
     strUsage += "  -par=<n>               " + strprintf(_("Set the number of script verification threads (%u to %d, 0 = auto, <0 = leave that many cores free, default: %d)"), -(int)boost::thread::hardware_concurrency(), BITCREDIT_MAX_SCRIPTCHECK_THREADS, BITCREDIT_DEFAULT_SCRIPTCHECK_THREADS) + "\n";
     strUsage += "  -pid=<file>            " + _("Specify pid file (default: creditsd.pid)") + "\n";
-    strUsage += "  -maxorphanblocks=<n>   " + strprintf(_("Keep at most <n> unconnectable blocks in memory (default: %u)"), BITCREDIT_DEFAULT_MAX_ORPHAN_BLOCKS) + "\n";
+    strUsage += "  -maxorphanblocksmemory=<n>   " + strprintf(_("Keep at most <n> unconnectable blocks in memory (default: %u)"), BITCREDIT_DEFAULT_MAX_ORPHAN_BLOCKS_MEMORY) + "\n";
+    strUsage += "  -maxorphanblocksdisk=<n>   " + strprintf(_("Keep at most <n> unconnectable blocks on disk (default: %u)"), BITCREDIT_DEFAULT_MAX_ORPHAN_BLOCKS_DISK) + "\n";
     strUsage += "  -bitcoin_maxorphanblocks=<n>         " + _("Same as above, for bitcoin") + "\n";
 
     strUsage += "  -reindex               " + _("Rebuild block chain index from current blk000??.dat files") + " " + _("on startup") + "\n";
@@ -896,6 +897,10 @@ bool InitDbAndCache(int64_t& nStart) {
                 break;
             }
 
+        	if(!Credits_IndexOrphansFromDisk()) {
+                return InitError("Could not load orphans from temporary disk index. Delete .tmp directory and restart Credits.");
+        	}
+
             fLoaded = true;
         } while(false);
 
@@ -1161,6 +1166,11 @@ bool Bitcredit_AppInit2(boost::thread_group& threadGroup) {
     static boost::interprocess::file_lock lock(pathLockFile.string().c_str());
     if (!lock.try_lock())
         return InitError(strprintf(_("Cannot obtain a lock on data directory %s. Credits Core is probably already running."), strDataDir));
+
+    const boost::filesystem::path orphansDirPath = GetDataDir() / ".tmp" / "credits_orphans";
+    if (!boost::filesystem::exists(orphansDirPath)) {
+    	boost::filesystem::create_directories(orphansDirPath);
+    }
 
     if (GetBoolArg("-shrinkdebugfile", !fDebug))
         ShrinkDebugFile();

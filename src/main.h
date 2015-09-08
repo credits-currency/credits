@@ -52,8 +52,10 @@ static const unsigned int CREDITS_MAX_STANDARD_TX_SIZE = 100000;
 static const unsigned int BITCREDIT_MAX_BLOCK_SIGOPS = BITCREDIT_MAX_BLOCK_SIZE/50;
 /** The maximum number of orphan transactions kept in memory */
 static const unsigned int BITCREDIT_MAX_ORPHAN_TRANSACTIONS = BITCREDIT_MAX_BLOCK_SIZE/100;
-/** Default for -maxorphanblocks, maximum number of orphan blocks kept in memory */
-static const unsigned int BITCREDIT_DEFAULT_MAX_ORPHAN_BLOCKS = 750;
+/** Default for -maxorphanblocksmemory, maximum number of orphan blocks kept in memory */
+static const unsigned int BITCREDIT_DEFAULT_MAX_ORPHAN_BLOCKS_MEMORY = 200;
+/** Default for -maxorphanblocksdisk, maximum number of orphan blocks kept in memory */
+static const unsigned int BITCREDIT_DEFAULT_MAX_ORPHAN_BLOCKS_DISK = 50000;
 /** The maximum size of a blk?????.dat file (since 0.8) */
 static const unsigned int BITCREDIT_MAX_BLOCKFILE_SIZE = 0x8000000; // 128 MiB
 /** The pre-allocation chunk size for blk?????.dat files (since 0.8) */
@@ -147,6 +149,8 @@ void Bitcredit_UnregisterNodeSignals(CNodeSignals& nodeSignals);
 
 void Bitcredit_PushGetBlocks(CNode* pnode, Credits_CBlockIndex* pindexBegin, uint256 hashEnd);
 
+/** Used from init to re-read all the orphan info for Credits blocks **/
+bool Credits_IndexOrphansFromDisk();
 /** Process an incoming block */
 bool Bitcredit_ProcessBlock(CValidationState &state, CNode* pfrom, Credits_CBlock* pblock, CDiskBlockPos *dbp = NULL);
 /** Check whether enough disk space is available for an incoming block */
@@ -484,8 +488,9 @@ bool Bitcredit_ConnectBlock(Credits_CBlock& block, CValidationState& state, Cred
 bool Bitcredit_AddToBlockIndex(Credits_CBlock& block, CValidationState& state, const CDiskBlockPos& pos);
 
 // Context-independent validity checks
-bool Bitcredit_CheckBlockHeader(const Credits_CBlockHeader& block, CValidationState& state, bool fCheckPOW = true);
-bool Bitcredit_CheckBlock(const Credits_CBlock& block, CValidationState& state, bool fCheckPOW = true, bool fCheckMerkleRoot = true);
+bool Credits_CheckLinkedBitcoinBlock(const Credits_CBlockHeader& block, CValidationState& state);
+bool Bitcredit_CheckBlockHeader(const Credits_CBlockHeader& block, CValidationState& state, bool fCheckPOW = true, bool fCheckLinkedBitcoinBlock = true);
+bool Bitcredit_CheckBlock(const Credits_CBlock& block, CValidationState& state, bool fCheckPOW = true, bool fCheckMerkleRoot = true, bool fCheckLinkedBitcoinBlock = true);
 
 // Store block on disk
 // if dbp is provided, the file is known to already reside on disk

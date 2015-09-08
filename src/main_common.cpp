@@ -168,3 +168,17 @@ FILE* OpenDiskFile(const CDiskBlockPos &pos, const char *dir, const char *prefix
     }
     return file;
 }
+
+FILE* OpenTmpDiskFile(const char *dir, const char *subdir, const char *filename, bool fReadOnly)
+{
+    boost::filesystem::path path = GetTmpDataDir() / dir / subdir / strprintf("%s", filename);
+    boost::filesystem::create_directories(path.parent_path());
+    FILE* file = fopen(path.string().c_str(), "rb+");
+    if (!file && !fReadOnly)
+        file = fopen(path.string().c_str(), "wb+");
+    if (!file) {
+        LogPrintf("Unable to open tmp file %s\n", path.string());
+        return NULL;
+    }
+    return file;
+}

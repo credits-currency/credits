@@ -83,10 +83,40 @@ public:
      }
 };
 
-struct COrphanBlock {
+class COrphanBlock {
+public:
     uint256 hashBlock;
     uint256 hashPrev;
     vector<unsigned char> vchBlock;
+    bool fStoredInMemory;
+
+    void SetNull() {
+        hashBlock = 0;
+        hashPrev = 0;
+        vchBlock.clear();
+        fStoredInMemory = false;
+    }
+
+    COrphanBlock() {
+        SetNull();
+    }
+};
+
+class COrphanIndex {
+public:
+	map<uint256, COrphanBlock*> mapOrphanBlocks;
+	multimap<uint256, COrphanBlock*> mapOrphanBlocksByPrev;
+	int nStoredInMemory;
+
+    void SetNull() {
+        mapOrphanBlocks.clear();
+        mapOrphanBlocksByPrev.clear();
+        nStoredInMemory = 0;
+    }
+
+    COrphanIndex() {
+        SetNull();
+    }
 };
 
 //The following structs are used to keep track of state of CNodes
@@ -351,5 +381,6 @@ public:
 };
 
 FILE* OpenDiskFile(const CDiskBlockPos &pos, const char *dir, const char *prefix, bool fReadOnly);
+FILE* OpenTmpDiskFile(const char *dir, const char *subdir, const char *filename, bool fReadOnly);
 
 #endif
