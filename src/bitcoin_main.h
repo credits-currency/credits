@@ -50,8 +50,10 @@ static const unsigned int BITCOIN_MAX_STANDARD_TX_SIZE = 100000;
 static const unsigned int BITCOIN_MAX_BLOCK_SIGOPS = BITCOIN_MAX_BLOCK_SIZE/50;
 /** The maximum number of orphan transactions kept in memory */
 static const unsigned int BITCOIN_MAX_ORPHAN_TRANSACTIONS = BITCOIN_MAX_BLOCK_SIZE/100;
-/** Default for -maxorphanblocks, maximum number of orphan blocks kept in memory */
-static const unsigned int BITCOIN_DEFAULT_MAX_ORPHAN_BLOCKS = 750;
+/** Default for -bitcoin_maxorphanblocksmemory, maximum number of orphan blocks kept in memory */
+static const unsigned int BITCOIN_DEFAULT_MAX_ORPHAN_BLOCKS_MEMORY = 200;
+/** Default for -bitcoin_maxorphanblocksdisk, maximum number of orphan blocks kept on disk */
+static const unsigned int BITCOIN_DEFAULT_MAX_ORPHAN_BLOCKS_DISK = 5000;
 /** The maximum size of a blk?????.dat file (since 0.8) */
 static const unsigned int BITCOIN_MAX_BLOCKFILE_SIZE = 0x8000000; // 128 MiB
 /** The pre-allocation chunk size for blk?????.dat files (since 0.8) */
@@ -136,6 +138,8 @@ void Bitcoin_UnregisterNodeSignals(CNodeSignals& nodeSignals);
 
 void Bitcoin_PushGetBlocks(CNode* pnode, Bitcoin_CBlockIndex* pindexBegin, uint256 hashEnd);
 
+/** Used from init to re-read all the orphan info for Bitcoin blocks **/
+bool Bitcoin_IndexOrphansFromDisk();
 /** Process an incoming block */
 bool Bitcoin_ProcessBlock(CValidationState &state, CNode* pfrom, Bitcoin_CBlock* pblock, CDiskBlockPos *dbp = NULL);
 /** Check whether enough disk space is available for an incoming block */

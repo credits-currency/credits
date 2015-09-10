@@ -283,9 +283,10 @@ std::string HelpMessage(HelpMessageMode hmm)
     strUsage += "  -bitcoin_loadblock=<file>         " + _("Same as above, for bitcoin") + "\n";
     strUsage += "  -par=<n>               " + strprintf(_("Set the number of script verification threads (%u to %d, 0 = auto, <0 = leave that many cores free, default: %d)"), -(int)boost::thread::hardware_concurrency(), BITCREDIT_MAX_SCRIPTCHECK_THREADS, BITCREDIT_DEFAULT_SCRIPTCHECK_THREADS) + "\n";
     strUsage += "  -pid=<file>            " + _("Specify pid file (default: creditsd.pid)") + "\n";
-    strUsage += "  -maxorphanblocksmemory=<n>   " + strprintf(_("Keep at most <n> unconnectable blocks in memory (default: %u)"), BITCREDIT_DEFAULT_MAX_ORPHAN_BLOCKS_MEMORY) + "\n";
-    strUsage += "  -maxorphanblocksdisk=<n>   " + strprintf(_("Keep at most <n> unconnectable blocks on disk (default: %u)"), BITCREDIT_DEFAULT_MAX_ORPHAN_BLOCKS_DISK) + "\n";
-    strUsage += "  -bitcoin_maxorphanblocks=<n>         " + _("Same as above, for bitcoin") + "\n";
+    strUsage += "  -maxorphanblocksmemory=<n>   " + strprintf(_("Keep at most <n> unconnectable credits blocks in memory (default: %u)"), BITCREDIT_DEFAULT_MAX_ORPHAN_BLOCKS_MEMORY) + "\n";
+    strUsage += "  -maxorphanblocksdisk=<n>   " + strprintf(_("Keep at most <n> unconnectable credits blocks on disk (default: %u)"), BITCREDIT_DEFAULT_MAX_ORPHAN_BLOCKS_DISK) + "\n";
+    strUsage += "  -bitcoin_maxorphanblocksmemory=<n>   " + strprintf(_("Same as above, for Bitcoin (default: %u)"), BITCOIN_DEFAULT_MAX_ORPHAN_BLOCKS_MEMORY) + "\n";
+    strUsage += "  -bitcoin_maxorphanblocksdisk=<n>   " + strprintf(_("Same as above, for Bitcoin (default: %u)"), BITCOIN_DEFAULT_MAX_ORPHAN_BLOCKS_DISK) + "\n";
 
     strUsage += "  -reindex               " + _("Rebuild block chain index from current blk000??.dat files") + " " + _("on startup") + "\n";
     strUsage += "  -txindex               " + _("Maintain a full transaction index (default: 0)") + "\n";
@@ -898,7 +899,10 @@ bool InitDbAndCache(int64_t& nStart) {
             }
 
         	if(!Credits_IndexOrphansFromDisk()) {
-                return InitError("Could not load orphans from temporary disk index. Delete .tmp directory and restart Credits.");
+                return InitError("Could not load Credits orphans from temporary disk index. Delete .tmp directory and restart Credits.");
+        	}
+        	if(!Bitcoin_IndexOrphansFromDisk()) {
+                return InitError("Could not load Bitcoin orphans from temporary disk index. Delete .tmp directory and restart Credits.");
         	}
 
             fLoaded = true;
@@ -1167,9 +1171,13 @@ bool Bitcredit_AppInit2(boost::thread_group& threadGroup) {
     if (!lock.try_lock())
         return InitError(strprintf(_("Cannot obtain a lock on data directory %s. Credits Core is probably already running."), strDataDir));
 
-    const boost::filesystem::path orphansDirPath = GetDataDir() / ".tmp" / "credits_orphans";
-    if (!boost::filesystem::exists(orphansDirPath)) {
-    	boost::filesystem::create_directories(orphansDirPath);
+    const boost::filesystem::path credits_orphansDirPath = GetDataDir() / ".tmp" / "credits_orphans";
+    if (!boost::filesystem::exists(credits_orphansDirPath)) {
+    	boost::filesystem::create_directories(credits_orphansDirPath);
+    }
+    const boost::filesystem::path bitcoin_orphansDirPath = GetDataDir() / ".tmp" / "bitcoin_orphans";
+    if (!boost::filesystem::exists(bitcoin_orphansDirPath)) {
+    	boost::filesystem::create_directories(bitcoin_orphansDirPath);
     }
 
     if (GetBoolArg("-shrinkdebugfile", !fDebug))

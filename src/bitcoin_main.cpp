@@ -56,8 +56,7 @@ int64_t Bitcoin_CTransaction::nMinTxFee = 10000;  // Override with -mintxfee
 /** Fees smaller than this (in satoshi) are considered zero fee (for relaying and mining) */
 int64_t Bitcoin_CTransaction::nMinRelayTxFee = 1000;
 
-map<uint256, COrphanBlock*> bitcoin_mapOrphanBlocks;
-multimap<uint256, COrphanBlock*> bitcoin_mapOrphanBlocksByPrev;
+COrphanIndex bitcoin_orphanIndex;
 
 map<uint256, Bitcoin_CTransaction> bitcoin_mapOrphanTransactions;
 map<uint256, set<uint256> > bitcoin_mapOrphanTransactionsByPrev;
@@ -1099,42 +1098,169 @@ bool Bitcoin_ReadBlockFromDisk(Bitcoin_CBlock& block, const Bitcoin_CBlockIndex*
 
 uint256 static Bitcoin_GetOrphanRoot(const uint256& hash)
 {
-    map<uint256, COrphanBlock*>::iterator it = bitcoin_mapOrphanBlocks.find(hash);
-    if (it == bitcoin_mapOrphanBlocks.end())
+    map<uint256, COrphanBlock*>::iterator it = bitcoin_orphanIndex.mapOrphanBlocks.find(hash);
+    if (it == bitcoin_orphanIndex.mapOrphanBlocks.end())
         return hash;
 
     // Work back to the first block in the orphan chain
     do {
-        map<uint256, COrphanBlock*>::iterator it2 = bitcoin_mapOrphanBlocks.find(it->second->hashPrev);
-        if (it2 == bitcoin_mapOrphanBlocks.end())
+        map<uint256, COrphanBlock*>::iterator it2 = bitcoin_orphanIndex.mapOrphanBlocks.find(it->second->hashPrev);
+        if (it2 == bitcoin_orphanIndex.mapOrphanBlocks.end())
             return it->first;
         it = it2;
     } while(true);
 }
 
+bool Bitcoin_WriteOrphanToDisk(Bitcoin_CBlock& pblock, CNode* pfrom) {
+	const uint256 hash = pblock.GetHash();
+	const std::string hashHex = hash.GetHex();
+	const std::string lastTwo = hashHex.substr(hashHex.size() - 2);
+
+    //Open block file (and create if necessary)
+	FILE* blockFile = OpenTmpDiskFile("bitcoin_orphans", lastTwo.c_str(), hashHex.c_str(), false);
+    if (!blockFile)
+        return error("Bitcoin_WriteOrphanToDisk : OpenBlockFile failed");
+
+    // Open history file to append
+    CAutoFile fileout = CAutoFile(blockFile, SER_DISK, pfrom->GetNetParams()->ClientVersion());
+    if (!fileout)
+        return error("Bitcoin: Bitcoin_CBlockCompressed::WriteToDisk : OpenFile failed");
+
+    //Write hashes of interest
+    fileout << hash;
+    fileout << pblock.hashPrevBlock;
+
+	// write block
+    fileout << pblock;
+
+    // Flush stdio buffers and commit to disk before returning
+    fflush(fileout);
+    FileCommit(fileout);
+
+    return true;
+}
+
+bool Bitcoin_ReadOrphanFromDisk(const uint256 &hash, Bitcoin_CBlock& block) {
+	const std::string hashHex = hash.GetHex();
+	const std::string lastTwo = hashHex.substr(hashHex.size() - 2);
+
+    block.SetNull();
+
+    // Open history file to read
+    CAutoFile filein = CAutoFile(OpenTmpDiskFile("bitcoin_orphans", lastTwo.c_str(), hashHex.c_str(), true), SER_DISK, Bitcoin_Params().ClientVersion());
+    if (!filein)
+        return error("Bitcoin: Bitcoin_ReadOrphanFromDisk : OpenBlockFile failed");
+
+    try {
+		//Read hashes of interest
+		uint256 tmpHash;
+		filein >> tmpHash; // hash
+		uint256 tmpPrevHash;
+		filein >> tmpPrevHash; //pblock->hashPrevBlock;
+
+		// Read block
+        filein >> block;
+    }
+    catch (std::exception &e) {
+        return error("Bitcoin_ReadOrphanFromDisk: %s : Deserialize or I/O error - %s", __func__, e.what());
+    }
+
+    // Check the header
+    if (!Bitcoin_CheckProofOfWork(block.GetHash(), block.nBits))
+        return error("Bitcoin: Bitcoin_ReadOrphanFromDisk : Errors in block header");
+
+    return true;
+}
+
+void Bitcoin_DeleteOrphanFromDisk(const uint256 &hash) {
+	const std::string hashHex = hash.GetHex();
+	const std::string lastTwo = hashHex.substr(hashHex.size() - 2);
+
+    boost::filesystem::remove(GetTmpDataDir() / "bitcoin_orphans" / lastTwo / hashHex);
+
+    LogPrintf("Removed orphaned Bitcoin blocks %s from disk\n", hashHex);
+}
+
+bool Bitcoin_IndexOrphansFromDisk() {
+    const int64_t nStart = GetTimeMillis();
+
+    bitcoin_orphanIndex.SetNull();
+
+    unsigned int nOrphansLoaded = 0;
+	//Load index for all orphans
+	const boost::filesystem::path dirPath = GetTmpDataDir() / "bitcoin_orphans";
+	boost::filesystem::directory_iterator it(dirPath), eod;
+	BOOST_FOREACH(const boost::filesystem::path& subDirPath, std::make_pair(it, eod)) {
+	    if(boost::filesystem::is_directory(subDirPath)) {
+	    	boost::filesystem::directory_iterator it2(subDirPath), eod2;
+        	BOOST_FOREACH(const boost::filesystem::path& orphanedFilePath, std::make_pair(it2, eod2)) {
+        	    if(boost::filesystem::is_regular_file(orphanedFilePath)) {
+        	        // Open orphan file to read
+        	        CAutoFile filein = CAutoFile(fopen(orphanedFilePath.string().c_str(), "rb+"), SER_DISK, Bitcoin_Params().ClientVersion());
+        	        if (!filein)
+        	            return error("Bitcoin_IndexOrphansFromDisk : OpenBlockFile failed");
+
+        	        try {
+        	    		//Read hashes of interest
+        	    		uint256 hash;
+        	    		filein >> hash;
+        	    		uint256 hashPrevBlock;
+        	    		filein >> hashPrevBlock;
+
+        	            COrphanBlock* pblock2 = new COrphanBlock();
+        	            pblock2->hashBlock = hash;
+        	            pblock2->hashPrev = hashPrevBlock;
+        	            pblock2->fStoredInMemory = false;
+
+        	            bitcoin_orphanIndex.mapOrphanBlocks.insert(make_pair(hash, pblock2));
+        	            bitcoin_orphanIndex.mapOrphanBlocksByPrev.insert(make_pair(pblock2->hashPrev, pblock2));
+
+        	            nOrphansLoaded++;
+        	        }
+        	        catch (std::exception &e) {
+        	            return error("Bitcoin_IndexOrphansFromDisk: %s : Deserialize or I/O error - %s", __func__, e.what());
+        	        }
+        	    }
+        	}
+	    }
+	}
+
+    LogPrintf("%d orphaned Bitcoin blocks loaded from disk in %15dms\n", nOrphansLoaded, GetTimeMillis() - nStart);
+
+	return true;
+}
+
 // Remove a random orphan block (which does not have any dependent orphans).
 void static Bitcoin_PruneOrphanBlocks()
 {
-    if (bitcoin_mapOrphanBlocksByPrev.size() <= (size_t)std::max((int64_t)0, GetArg("-bitcoin_maxorphanblocks", BITCOIN_DEFAULT_MAX_ORPHAN_BLOCKS)))
+	const int64_t nMaxOrphansMemory = GetArg("-bitcoin_maxorphanblocksmemory", BITCOIN_DEFAULT_MAX_ORPHAN_BLOCKS_MEMORY);
+	const int64_t nMaxOrphansDisk = GetArg("-bitcoin_maxorphanblocksdisk", BITCOIN_DEFAULT_MAX_ORPHAN_BLOCKS_DISK);
+    if (bitcoin_orphanIndex.mapOrphanBlocksByPrev.size() <= (size_t)std::max((int64_t)0, nMaxOrphansMemory + nMaxOrphansDisk))
         return;
 
     // Pick a random orphan block.
-    int pos = insecure_rand() % bitcoin_mapOrphanBlocksByPrev.size();
-    std::multimap<uint256, COrphanBlock*>::iterator it = bitcoin_mapOrphanBlocksByPrev.begin();
+    int pos = insecure_rand() % bitcoin_orphanIndex.mapOrphanBlocksByPrev.size();
+    std::multimap<uint256, COrphanBlock*>::iterator it = bitcoin_orphanIndex.mapOrphanBlocksByPrev.begin();
     while (pos--) it++;
 
     // As long as this block has other orphans depending on it, move to one of those successors.
     do {
-        std::multimap<uint256, COrphanBlock*>::iterator it2 = bitcoin_mapOrphanBlocksByPrev.find(it->second->hashBlock);
-        if (it2 == bitcoin_mapOrphanBlocksByPrev.end())
+        std::multimap<uint256, COrphanBlock*>::iterator it2 = bitcoin_orphanIndex.mapOrphanBlocksByPrev.find(it->second->hashBlock);
+        if (it2 == bitcoin_orphanIndex.mapOrphanBlocksByPrev.end())
             break;
         it = it2;
     } while(1);
 
-    uint256 hash = it->second->hashBlock;
+    const bool fStoredInMemory = it->second->fStoredInMemory;
+    const uint256 hash = it->second->hashBlock;
     delete it->second;
-    bitcoin_mapOrphanBlocksByPrev.erase(it);
-    bitcoin_mapOrphanBlocks.erase(hash);
+    bitcoin_orphanIndex.mapOrphanBlocksByPrev.erase(it);
+    bitcoin_orphanIndex.mapOrphanBlocks.erase(hash);
+    if(fStoredInMemory) {
+    	bitcoin_orphanIndex.nStoredInMemory--;
+    } else {
+    	Bitcoin_DeleteOrphanFromDisk(hash);
+    }
 }
 
 int64_t Bitcoin_GetBlockValue(int nHeight, int64_t nFees)
@@ -3696,7 +3822,7 @@ bool Bitcoin_ProcessBlock(CValidationState &state, CNode* pfrom, Bitcoin_CBlock*
     uint256 hash = pblock->GetHash();
     if (bitcoin_mapBlockIndex.count(hash))
         return state.Invalid(error("Bitcoin: ProcessBlock() : already have block %d %s", bitcoin_mapBlockIndex[hash]->nHeight, hash.ToString()), 0, "duplicate");
-    if (bitcoin_mapOrphanBlocks.count(hash))
+    if (bitcoin_orphanIndex.mapOrphanBlocks.count(hash))
         return state.Invalid(error("Bitcoin: ProcessBlock() : already have block (orphan) %s", hash.ToString()), 0, "duplicate");
 
     // Preliminary checks
@@ -3707,21 +3833,30 @@ bool Bitcoin_ProcessBlock(CValidationState &state, CNode* pfrom, Bitcoin_CBlock*
     std::map<uint256, Bitcoin_CBlockIndex*>::iterator it = bitcoin_mapBlockIndex.find(pblock->hashPrevBlock);
     if (pblock->hashPrevBlock != 0 && (it == bitcoin_mapBlockIndex.end() || !(it->second->nStatus & BLOCK_HAVE_DATA)))
     {
-        LogPrintf("Bitcoin: ProcessBlock: ORPHAN BLOCK %lu, prev=%s\n", (unsigned long)bitcoin_mapOrphanBlocks.size(), pblock->hashPrevBlock.ToString());
+        LogPrintf("Bitcoin: ProcessBlock: ORPHAN BLOCK %lu, prev=%s\n", (unsigned long)bitcoin_orphanIndex.mapOrphanBlocks.size(), pblock->hashPrevBlock.ToString());
 
         // Accept orphans as long as there is a node to request its parents from
         if (pfrom) {
             Bitcoin_PruneOrphanBlocks();
             COrphanBlock* pblock2 = new COrphanBlock();
             {
-                CDataStream ss(SER_DISK, Bitcoin_Params().ClientVersion());
-                ss << *pblock;
-                pblock2->vchBlock = std::vector<unsigned char>(ss.begin(), ss.end());
+            	if(bitcoin_orphanIndex.nStoredInMemory < GetArg("-bitcoin_maxorphanblocksmemory", BITCOIN_DEFAULT_MAX_ORPHAN_BLOCKS_MEMORY)) {
+					CDataStream ss(SER_DISK, Bitcoin_Params().ClientVersion());
+					ss << *pblock;
+					pblock2->vchBlock = std::vector<unsigned char>(ss.begin(), ss.end());
+					pblock2->fStoredInMemory = true;
+					bitcoin_orphanIndex.nStoredInMemory++;
+            	} else {
+					if(!Bitcoin_WriteOrphanToDisk(*pblock, pfrom)) {
+						return error("Bitcoin: ProcessBlock() : FAILED to write orphan to disk");
+					}
+					pblock2->fStoredInMemory = false;
+            	}
             }
             pblock2->hashBlock = hash;
             pblock2->hashPrev = pblock->hashPrevBlock;
-            bitcoin_mapOrphanBlocks.insert(make_pair(hash, pblock2));
-            bitcoin_mapOrphanBlocksByPrev.insert(make_pair(pblock2->hashPrev, pblock2));
+            bitcoin_orphanIndex.mapOrphanBlocks.insert(make_pair(hash, pblock2));
+            bitcoin_orphanIndex.mapOrphanBlocksByPrev.insert(make_pair(pblock2->hashPrev, pblock2));
 
             // Ask this guy to fill in what we're missing
             Bitcoin_PushGetBlocks(pfrom, (Bitcoin_CBlockIndex*)bitcoin_chainActive.Tip(), Bitcoin_GetOrphanRoot(hash));
@@ -3741,14 +3876,20 @@ bool Bitcoin_ProcessBlock(CValidationState &state, CNode* pfrom, Bitcoin_CBlock*
     for (unsigned int i = 0; i < vWorkQueue.size(); i++)
     {
         uint256 hashPrev = vWorkQueue[i];
-        for (multimap<uint256, COrphanBlock*>::iterator mi = bitcoin_mapOrphanBlocksByPrev.lower_bound(hashPrev);
-             mi != bitcoin_mapOrphanBlocksByPrev.upper_bound(hashPrev);
+        for (multimap<uint256, COrphanBlock*>::iterator mi = bitcoin_orphanIndex.mapOrphanBlocksByPrev.lower_bound(hashPrev);
+             mi != bitcoin_orphanIndex.mapOrphanBlocksByPrev.upper_bound(hashPrev);
              ++mi)
         {
             Bitcoin_CBlock block;
             {
-                CDataStream ss(mi->second->vchBlock, SER_DISK, Bitcoin_Params().ClientVersion());
-                ss >> block;
+            	if(mi->second->fStoredInMemory) {
+					CDataStream ss(mi->second->vchBlock, SER_DISK, Bitcoin_Params().ClientVersion());
+					ss >> block;
+            	} else {
+					if(!Bitcoin_ReadOrphanFromDisk(mi->second->hashBlock, block)) {
+						return error("Bitcoin: ProcessBlock() : FAILED read orphaned block from disk!");
+					}
+            	}
             }
             block.BuildMerkleTree();
             // Use a dummy CValidationState so someone can't setup nodes to counter-DoS based on orphan resolution (that is, feeding people an invalid block based on LegitBlockX in order to get anyone relaying LegitBlockX banned)
@@ -3756,10 +3897,15 @@ bool Bitcoin_ProcessBlock(CValidationState &state, CNode* pfrom, Bitcoin_CBlock*
             Bitcoin_CBlockIndex *pindexChild = NULL;
             if (Bitcoin_AcceptBlock(block, stateDummy, &pindexChild, NULL, Bitcoin_NetParams()))
                 vWorkQueue.push_back(mi->second->hashBlock);
-            bitcoin_mapOrphanBlocks.erase(mi->second->hashBlock);
+            bitcoin_orphanIndex.mapOrphanBlocks.erase(mi->second->hashBlock);
+            if(mi->second->fStoredInMemory) {
+            	bitcoin_orphanIndex.nStoredInMemory--;
+            } else {
+            	Bitcoin_DeleteOrphanFromDisk(mi->second->hashBlock);
+            }
             delete mi->second;
         }
-        bitcoin_mapOrphanBlocksByPrev.erase(hashPrev);
+        bitcoin_orphanIndex.mapOrphanBlocksByPrev.erase(hashPrev);
     }
 
     LogPrintf("Bitcoin: ProcessBlock: ACCEPTED\n");
@@ -4306,7 +4452,7 @@ bool static Bitcoin_AlreadyHave(const CInv& inv)
         }
     case MSG_BLOCK:
         return bitcoin_mapBlockIndex.count(inv.hash) ||
-               bitcoin_mapOrphanBlocks.count(inv.hash);
+               bitcoin_orphanIndex.mapOrphanBlocks.count(inv.hash);
     }
     // Don't know what it is, just say we already got one
     return true;
@@ -4685,7 +4831,7 @@ bool static Bitcoin_ProcessMessage(CNode* pfrom, string strCommand, CDataStream&
                     else
                         pfrom->AskFor(inv);
                 }
-            } else if (inv.type == MSG_BLOCK && bitcoin_mapOrphanBlocks.count(inv.hash)) {
+            } else if (inv.type == MSG_BLOCK && bitcoin_orphanIndex.mapOrphanBlocks.count(inv.hash)) {
                 Bitcoin_PushGetBlocks(pfrom, (Bitcoin_CBlockIndex*)bitcoin_chainActive.Tip(), Bitcoin_GetOrphanRoot(inv.hash));
             }
 
@@ -5495,10 +5641,10 @@ public:
         bitcoin_mapBlockIndex.clear();
 
         // orphan blocks
-        std::map<uint256, COrphanBlock*>::iterator it2 = bitcoin_mapOrphanBlocks.begin();
-        for (; it2 != bitcoin_mapOrphanBlocks.end(); it2++)
+        std::map<uint256, COrphanBlock*>::iterator it2 = bitcoin_orphanIndex.mapOrphanBlocks.begin();
+        for (; it2 != bitcoin_orphanIndex.mapOrphanBlocks.end(); it2++)
             delete (*it2).second;
-        bitcoin_mapOrphanBlocks.clear();
+        bitcoin_orphanIndex.SetNull();
 
         // orphan transactions
         bitcoin_mapOrphanTransactions.clear();
