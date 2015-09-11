@@ -3258,6 +3258,46 @@ void Bitcredit_PushGetBlocks(CNode* pnode, Credits_CBlockIndex* pindexBegin, uin
     pnode->PushMessage("getblocks", credits_chainActive.GetLocator(pindexBegin), hashEnd);
 }
 
+bool Credits_ProcessOrphans(const uint256 &hashPrev)
+{
+    // Recursively process any orphan blocks that depended on this one
+    vector<uint256> vWorkQueue;
+    vWorkQueue.push_back(hashPrev);
+    for (unsigned int i = 0; i < vWorkQueue.size(); i++)
+    {
+        uint256 hashPrev = vWorkQueue[i];
+        for (multimap<uint256, COrphanBlock*>::iterator mi = credits_orphanIndex.mapOrphanBlocksByPrev.lower_bound(hashPrev);
+             mi != credits_orphanIndex.mapOrphanBlocksByPrev.upper_bound(hashPrev);
+             ++mi)
+        {
+            Credits_CBlock block;
+            {
+            	if(mi->second->fStoredInMemory) {
+					CDataStream ss(mi->second->vchBlock, SER_DISK, CREDITS_CLIENT_VERSION);
+					ss >> block;
+            	} else {
+					if(!Credits_ReadOrphanFromDisk(mi->second->hashBlock, block)) {
+						return error("Credits: ProcessBlock() : Read orphaned block from disk FAILED!");
+					}
+            	}
+            }
+            block.BuildMerkleTree();
+            block.BuildSigMerkleTree();
+            // Use a dummy CValidationState so someone can't setup nodes to counter-DoS based on orphan resolution (that is, feeding people an invalid block based on LegitBlockX in order to get anyone relaying LegitBlockX banned)
+            CValidationState stateDummy;
+            Credits_CBlockIndex *pindexChild = NULL;
+            if (Bitcredit_AcceptBlock(block, stateDummy, &pindexChild, NULL, Credits_NetParams()))
+                vWorkQueue.push_back(mi->second->hashBlock);
+
+            credits_orphanIndex.RemoveOrpan(mi->second);
+            delete mi->second;
+
+        }
+        credits_orphanIndex.mapOrphanBlocksByPrev.erase(hashPrev);
+    }
+    return true;
+}
+
 bool Bitcredit_ProcessBlock(CValidationState &state, CNode* pfrom, Credits_CBlock* pblock, CDiskBlockPos *dbp)
 {
     AssertLockHeld(credits_mainState.cs_main);
@@ -3320,45 +3360,11 @@ bool Bitcredit_ProcessBlock(CValidationState &state, CNode* pfrom, Credits_CBloc
 
     // Store to disk
     Credits_CBlockIndex *pindex = NULL;
-    bool ret = Bitcredit_AcceptBlock(*pblock, state, &pindex, dbp, Credits_NetParams());
-    if (!ret)
+    if(!Bitcredit_AcceptBlock(*pblock, state, &pindex, dbp, Credits_NetParams()))
         return error("Credits: ProcessBlock() : AcceptBlock FAILED");
 
-    // Recursively process any orphan blocks that depended on this one
-    vector<uint256> vWorkQueue;
-    vWorkQueue.push_back(hash);
-    for (unsigned int i = 0; i < vWorkQueue.size(); i++)
-    {
-        uint256 hashPrev = vWorkQueue[i];
-        for (multimap<uint256, COrphanBlock*>::iterator mi = credits_orphanIndex.mapOrphanBlocksByPrev.lower_bound(hashPrev);
-             mi != credits_orphanIndex.mapOrphanBlocksByPrev.upper_bound(hashPrev);
-             ++mi)
-        {
-            Credits_CBlock block;
-            {
-            	if(mi->second->fStoredInMemory) {
-					CDataStream ss(mi->second->vchBlock, SER_DISK, CREDITS_CLIENT_VERSION);
-					ss >> block;
-            	} else {
-					if(!Credits_ReadOrphanFromDisk(mi->second->hashBlock, block)) {
-						return error("Credits: ProcessBlock() : Read orphaned block from disk FAILED!");
-					}
-            	}
-            }
-            block.BuildMerkleTree();
-            block.BuildSigMerkleTree();
-            // Use a dummy CValidationState so someone can't setup nodes to counter-DoS based on orphan resolution (that is, feeding people an invalid block based on LegitBlockX in order to get anyone relaying LegitBlockX banned)
-            CValidationState stateDummy;
-            Credits_CBlockIndex *pindexChild = NULL;
-            if (Bitcredit_AcceptBlock(block, stateDummy, &pindexChild, NULL, Credits_NetParams()))
-                vWorkQueue.push_back(mi->second->hashBlock);
-
-            credits_orphanIndex.RemoveOrpan(mi->second);
-            delete mi->second;
-
-        }
-        credits_orphanIndex.mapOrphanBlocksByPrev.erase(hashPrev);
-    }
+    if(!Credits_ProcessOrphans(hash))
+        return error("Credits: ProcessBlock() : ProcessOrphans FAILED");
 
     LogPrintf("Credits: ProcessBlock: ACCEPTED\n");
     return true;
