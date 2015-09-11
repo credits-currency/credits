@@ -3258,14 +3258,15 @@ void Bitcredit_PushGetBlocks(CNode* pnode, Credits_CBlockIndex* pindexBegin, uin
     pnode->PushMessage("getblocks", credits_chainActive.GetLocator(pindexBegin), hashEnd);
 }
 
-bool Credits_ProcessOrphans(const uint256 &hashPrev)
+bool Credits_ProcessOrphans(const uint256 &hashInit)
 {
     // Recursively process any orphan blocks that depended on this one
     vector<uint256> vWorkQueue;
-    vWorkQueue.push_back(hashPrev);
+    vWorkQueue.push_back(hashInit);
     for (unsigned int i = 0; i < vWorkQueue.size(); i++)
     {
         uint256 hashPrev = vWorkQueue[i];
+        std::vector <COrphanBlock*>deleteOrphans;
         for (multimap<uint256, COrphanBlock*>::iterator mi = credits_orphanIndex.mapOrphanBlocksByPrev.lower_bound(hashPrev);
              mi != credits_orphanIndex.mapOrphanBlocksByPrev.upper_bound(hashPrev);
              ++mi)
@@ -3277,6 +3278,8 @@ bool Credits_ProcessOrphans(const uint256 &hashPrev)
 					ss >> block;
             	} else {
 					if(!Credits_ReadOrphanFromDisk(mi->second->hashBlock, block)) {
+						//Delete all gathered orphans as a cleanup measure
+				        credits_orphanIndex.DeletePrevPartial(hashPrev, deleteOrphans);
 						return error("Credits: ProcessBlock() : Read orphaned block from disk FAILED!");
 					}
             	}
@@ -3290,10 +3293,12 @@ bool Credits_ProcessOrphans(const uint256 &hashPrev)
                 vWorkQueue.push_back(mi->second->hashBlock);
 
             credits_orphanIndex.RemoveOrpan(mi->second);
-            delete mi->second;
-
+            //Gather all connected orphans for later deletion
+            deleteOrphans.push_back(mi->second);
         }
-        credits_orphanIndex.mapOrphanBlocksByPrev.erase(hashPrev);
+
+		//Delete all gathered orphans
+        credits_orphanIndex.DeletePrevPartial(hashPrev, deleteOrphans);
     }
     return true;
 }
