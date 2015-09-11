@@ -143,13 +143,17 @@ public:
 
     void DeletePrevPartial(const uint256& hash, std::vector <COrphanBlock*> &deleteOrphans) {
     	typedef multimap<uint256, COrphanBlock*>::iterator multiIter;
-		std::pair<multiIter, multiIter> inneriterpair = mapOrphanBlocksByPrev.equal_range(hash);
-		for (multiIter innerit = inneriterpair.first; innerit != inneriterpair.second; ++innerit) {
-			if(std::find(deleteOrphans.begin(), deleteOrphans.end(), innerit->second) != deleteOrphans.end()) {
-				delete innerit->second;
-				mapOrphanBlocksByPrev.erase(innerit);
+    	for(unsigned int i = 0; i < deleteOrphans.size(); i++) {
+    		COrphanBlock * orphan = deleteOrphans[i];
+
+			std::pair<multiIter, multiIter> inneriterpair = mapOrphanBlocksByLinkedBitcoinBlock.equal_range(hash); //
+			for (multiIter innerit = inneriterpair.first; innerit != inneriterpair.second; ++innerit) {
+				if (innerit->second == orphan) {
+					mapOrphanBlocksByLinkedBitcoinBlock.erase(innerit);
+					break;
+				}
 			}
-		}
+    	}
     }
 
     void RemoveOrpan(COrphanBlock * orphan) {
