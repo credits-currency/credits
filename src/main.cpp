@@ -55,7 +55,7 @@ int64_t Credits_CTransaction::nMinTxFee = 10000;  // Override with -mintxfee
 /** Fees smaller than this (in satoshi) are considered zero fee (for relaying and mining) */
 int64_t Credits_CTransaction::nMinRelayTxFee = 1000;
 
-COrphanIndex credits_orphanIndex;
+COrphanIndex credits_orphanIndex("credits_orphan");
 
 map<uint256, Credits_CTransaction> bitcredit_mapOrphanTransactions;
 map<uint256, set<uint256> > bitcredit_mapOrphanTransactionsByPrev;
@@ -1160,21 +1160,6 @@ bool Credits_ReadBlockFromDisk(Credits_CBlock& block, const Credits_CBlockIndex*
     return true;
 }
 
-uint256 static Bitcredit_GetOrphanRoot(const uint256& hash)
-{
-    map<uint256, COrphanBlock*>::iterator it = credits_orphanIndex.mapOrphanBlocks.find(hash);
-    if (it == credits_orphanIndex.mapOrphanBlocks.end())
-        return hash;
-
-    // Work back to the first block in the orphan chain
-    do {
-        map<uint256, COrphanBlock*>::iterator it2 = credits_orphanIndex.mapOrphanBlocks.find(it->second->hashPrev);
-        if (it2 == credits_orphanIndex.mapOrphanBlocks.end())
-            return it->first;
-        it = it2;
-    } while(true);
-}
-
 bool Credits_WriteOrphanToDisk(Credits_CBlock& pblock, CNode* pfrom) {
 	const uint256 hash = pblock.GetHash();
 	const std::string hashHex = hash.GetHex();
@@ -1193,6 +1178,7 @@ bool Credits_WriteOrphanToDisk(Credits_CBlock& pblock, CNode* pfrom) {
     //Write hashes of interest
     fileout << hash;
     fileout << pblock.hashPrevBlock;
+    fileout << pblock.hashLinkedBitcoinBlock;
 
 	// write block
     fileout << pblock;
@@ -1221,6 +1207,8 @@ bool Credits_ReadOrphanFromDisk(const uint256 &hash, Credits_CBlock& block) {
 		filein >> tmpHash; // hash
 		uint256 tmpPrevHash;
 		filein >> tmpPrevHash; //pblock->hashPrevBlock;
+		uint256 hashLinkedBitcoinBlock;
+		filein >> hashLinkedBitcoinBlock;
 
 		// Read block
         filein >> block;
@@ -1234,15 +1222,6 @@ bool Credits_ReadOrphanFromDisk(const uint256 &hash, Credits_CBlock& block) {
         return error("Credits: Credits_ReadOrphanFromDisk : Errors in block header");
 
     return true;
-}
-
-void Credits_DeleteOrphanFromDisk(const uint256 &hash) {
-	const std::string hashHex = hash.GetHex();
-	const std::string lastTwo = hashHex.substr(hashHex.size() - 2);
-
-    boost::filesystem::remove(GetTmpDataDir() / "credits_orphans" / lastTwo / hashHex);
-
-    LogPrintf("Removed orphaned Credits blocks %s from disk\n", hashHex);
 }
 
 bool Credits_IndexOrphansFromDisk() {
@@ -1270,14 +1249,18 @@ bool Credits_IndexOrphansFromDisk() {
         	    		filein >> hash;
         	    		uint256 hashPrevBlock;
         	    		filein >> hashPrevBlock;
+        	    		uint256 hashLinkedBitcoinBlock;
+        	    		filein >> hashLinkedBitcoinBlock;
 
         	            COrphanBlock* pblock2 = new COrphanBlock();
         	            pblock2->hashBlock = hash;
         	            pblock2->hashPrev = hashPrevBlock;
+        	            pblock2->hashLinkedBitcoinBlock = hashLinkedBitcoinBlock;
         	            pblock2->fStoredInMemory = false;
 
         	            credits_orphanIndex.mapOrphanBlocks.insert(make_pair(hash, pblock2));
         	            credits_orphanIndex.mapOrphanBlocksByPrev.insert(make_pair(pblock2->hashPrev, pblock2));
+        	            credits_orphanIndex.mapOrphanBlocksByLinkedBitcoinBlock.insert(make_pair(pblock2->hashLinkedBitcoinBlock, pblock2));
 
         	            nOrphansLoaded++;
         	        }
@@ -1292,39 +1275,6 @@ bool Credits_IndexOrphansFromDisk() {
     LogPrintf("%d orphaned Credits blocks loaded from disk in %15dms\n", nOrphansLoaded, GetTimeMillis() - nStart);
 
 	return true;
-}
-
-// Remove a random orphan block (which does not have any dependent orphans).
-void static Bitcredit_PruneOrphanBlocks()
-{
-	const int64_t nMaxOrphansMemory = GetArg("-maxorphanblocksmemory", BITCREDIT_DEFAULT_MAX_ORPHAN_BLOCKS_MEMORY);
-	const int64_t nMaxOrphansDisk = GetArg("-maxorphanblocksdisk", BITCREDIT_DEFAULT_MAX_ORPHAN_BLOCKS_DISK);
-    if (credits_orphanIndex.mapOrphanBlocksByPrev.size() <= (size_t)std::max((int64_t)0, nMaxOrphansMemory + nMaxOrphansDisk))
-        return;
-
-    // Pick a random orphan block.
-    int pos = insecure_rand() % credits_orphanIndex.mapOrphanBlocksByPrev.size();
-    std::multimap<uint256, COrphanBlock*>::iterator it = credits_orphanIndex.mapOrphanBlocksByPrev.begin();
-    while (pos--) it++;
-
-    // As long as this block has other orphans depending on it, move to one of those successors.
-    do {
-        std::multimap<uint256, COrphanBlock*>::iterator it2 = credits_orphanIndex.mapOrphanBlocksByPrev.find(it->second->hashBlock);
-        if (it2 == credits_orphanIndex.mapOrphanBlocksByPrev.end())
-            break;
-        it = it2;
-    } while(1);
-
-    const bool fStoredInMemory = it->second->fStoredInMemory;
-    const uint256 hash = it->second->hashBlock;
-    delete it->second;
-    credits_orphanIndex.mapOrphanBlocksByPrev.erase(it);
-    credits_orphanIndex.mapOrphanBlocks.erase(hash);
-    if(fStoredInMemory) {
-    	credits_orphanIndex.nStoredInMemory--;
-    } else {
-    	Credits_DeleteOrphanFromDisk(hash);
-    }
 }
 
 uint64_t Bitcredit_GetRequiredDeposit(const uint64_t nTotalDepositBase) {
@@ -3334,10 +3284,12 @@ bool Bitcredit_ProcessBlock(CValidationState &state, CNode* pfrom, Credits_CBloc
 
         // Accept orphans as long as there is a node to request its parents from
         if (pfrom) {
-            Bitcredit_PruneOrphanBlocks();
+        	const int64_t nMaxOrphansMemory = GetArg("-maxorphanblocksmemory", BITCREDIT_DEFAULT_MAX_ORPHAN_BLOCKS_MEMORY);
+        	const int64_t nMaxOrphansDisk = GetArg("-maxorphanblocksdisk", BITCREDIT_DEFAULT_MAX_ORPHAN_BLOCKS_DISK);
+        	credits_orphanIndex.PruneOrphanBlocks(nMaxOrphansMemory, nMaxOrphansDisk);
             COrphanBlock* pblock2 = new COrphanBlock();
             {
-            	if(credits_orphanIndex.nStoredInMemory < GetArg("-maxorphanblocksmemory", BITCREDIT_DEFAULT_MAX_ORPHAN_BLOCKS_MEMORY)) {
+            	if(credits_orphanIndex.nStoredInMemory < nMaxOrphansMemory) {
 					CDataStream ss(SER_DISK, CREDITS_CLIENT_VERSION);
 					ss << *pblock;
 					pblock2->vchBlock = std::vector<unsigned char>(ss.begin(), ss.end());
@@ -3352,13 +3304,15 @@ bool Bitcredit_ProcessBlock(CValidationState &state, CNode* pfrom, Credits_CBloc
             }
             pblock2->hashBlock = hash;
             pblock2->hashPrev = pblock->hashPrevBlock;
+            pblock2->hashLinkedBitcoinBlock = pblock->hashLinkedBitcoinBlock;
 
             credits_orphanIndex.mapOrphanBlocks.insert(make_pair(hash, pblock2));
             credits_orphanIndex.mapOrphanBlocksByPrev.insert(make_pair(pblock2->hashPrev, pblock2));
+            credits_orphanIndex.mapOrphanBlocksByLinkedBitcoinBlock.insert(make_pair(pblock2->hashLinkedBitcoinBlock, pblock2));
 
             if(fPreviousMissing) {
 				// Ask this guy to fill in what we're missing
-				Bitcredit_PushGetBlocks(pfrom, (Credits_CBlockIndex*)credits_chainActive.Tip(), Bitcredit_GetOrphanRoot(hash));
+				Bitcredit_PushGetBlocks(pfrom, (Credits_CBlockIndex*)credits_chainActive.Tip(), credits_orphanIndex.GetOrphanRoot(hash));
             }
         }
         return true;
@@ -3387,7 +3341,7 @@ bool Bitcredit_ProcessBlock(CValidationState &state, CNode* pfrom, Credits_CBloc
 					ss >> block;
             	} else {
 					if(!Credits_ReadOrphanFromDisk(mi->second->hashBlock, block)) {
-						return error("Credits: ProcessBlock() : FAILED read orphaned block from disk!");
+						return error("Credits: ProcessBlock() : Read orphaned block from disk FAILED!");
 					}
             	}
             }
@@ -3398,12 +3352,8 @@ bool Bitcredit_ProcessBlock(CValidationState &state, CNode* pfrom, Credits_CBloc
             Credits_CBlockIndex *pindexChild = NULL;
             if (Bitcredit_AcceptBlock(block, stateDummy, &pindexChild, NULL, Credits_NetParams()))
                 vWorkQueue.push_back(mi->second->hashBlock);
-            credits_orphanIndex.mapOrphanBlocks.erase(mi->second->hashBlock);
-            if(mi->second->fStoredInMemory) {
-            	credits_orphanIndex.nStoredInMemory--;
-            } else {
-            	Credits_DeleteOrphanFromDisk(mi->second->hashBlock);
-            }
+
+            credits_orphanIndex.RemoveOrpan(mi->second);
             delete mi->second;
 
         }
@@ -4317,7 +4267,7 @@ bool static Bitcredit_ProcessMessage(CMessageHeader& hdr, CNode* pfrom, string s
                         pfrom->AskFor(inv);
                 }
             } else if (inv.type == MSG_BLOCK && credits_orphanIndex.mapOrphanBlocks.count(inv.hash)) {
-                Bitcredit_PushGetBlocks(pfrom, (Credits_CBlockIndex*)credits_chainActive.Tip(), Bitcredit_GetOrphanRoot(inv.hash));
+                Bitcredit_PushGetBlocks(pfrom, (Credits_CBlockIndex*)credits_chainActive.Tip(), credits_orphanIndex.GetOrphanRoot(inv.hash));
             }
 
             // Track requests for our stuff

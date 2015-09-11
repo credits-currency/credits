@@ -56,7 +56,7 @@ int64_t Bitcoin_CTransaction::nMinTxFee = 10000;  // Override with -mintxfee
 /** Fees smaller than this (in satoshi) are considered zero fee (for relaying and mining) */
 int64_t Bitcoin_CTransaction::nMinRelayTxFee = 1000;
 
-COrphanIndex bitcoin_orphanIndex;
+COrphanIndex bitcoin_orphanIndex("bitcoin_orphan");
 
 map<uint256, Bitcoin_CTransaction> bitcoin_mapOrphanTransactions;
 map<uint256, set<uint256> > bitcoin_mapOrphanTransactionsByPrev;
@@ -1096,21 +1096,6 @@ bool Bitcoin_ReadBlockFromDisk(Bitcoin_CBlock& block, const Bitcoin_CBlockIndex*
     return true;
 }
 
-uint256 static Bitcoin_GetOrphanRoot(const uint256& hash)
-{
-    map<uint256, COrphanBlock*>::iterator it = bitcoin_orphanIndex.mapOrphanBlocks.find(hash);
-    if (it == bitcoin_orphanIndex.mapOrphanBlocks.end())
-        return hash;
-
-    // Work back to the first block in the orphan chain
-    do {
-        map<uint256, COrphanBlock*>::iterator it2 = bitcoin_orphanIndex.mapOrphanBlocks.find(it->second->hashPrev);
-        if (it2 == bitcoin_orphanIndex.mapOrphanBlocks.end())
-            return it->first;
-        it = it2;
-    } while(true);
-}
-
 bool Bitcoin_WriteOrphanToDisk(Bitcoin_CBlock& pblock, CNode* pfrom) {
 	const uint256 hash = pblock.GetHash();
 	const std::string hashHex = hash.GetHex();
@@ -1172,15 +1157,6 @@ bool Bitcoin_ReadOrphanFromDisk(const uint256 &hash, Bitcoin_CBlock& block) {
     return true;
 }
 
-void Bitcoin_DeleteOrphanFromDisk(const uint256 &hash) {
-	const std::string hashHex = hash.GetHex();
-	const std::string lastTwo = hashHex.substr(hashHex.size() - 2);
-
-    boost::filesystem::remove(GetTmpDataDir() / "bitcoin_orphans" / lastTwo / hashHex);
-
-    LogPrintf("Removed orphaned Bitcoin blocks %s from disk\n", hashHex);
-}
-
 bool Bitcoin_IndexOrphansFromDisk() {
     const int64_t nStart = GetTimeMillis();
 
@@ -1228,39 +1204,6 @@ bool Bitcoin_IndexOrphansFromDisk() {
     LogPrintf("%d orphaned Bitcoin blocks loaded from disk in %15dms\n", nOrphansLoaded, GetTimeMillis() - nStart);
 
 	return true;
-}
-
-// Remove a random orphan block (which does not have any dependent orphans).
-void static Bitcoin_PruneOrphanBlocks()
-{
-	const int64_t nMaxOrphansMemory = GetArg("-bitcoin_maxorphanblocksmemory", BITCOIN_DEFAULT_MAX_ORPHAN_BLOCKS_MEMORY);
-	const int64_t nMaxOrphansDisk = GetArg("-bitcoin_maxorphanblocksdisk", BITCOIN_DEFAULT_MAX_ORPHAN_BLOCKS_DISK);
-    if (bitcoin_orphanIndex.mapOrphanBlocksByPrev.size() <= (size_t)std::max((int64_t)0, nMaxOrphansMemory + nMaxOrphansDisk))
-        return;
-
-    // Pick a random orphan block.
-    int pos = insecure_rand() % bitcoin_orphanIndex.mapOrphanBlocksByPrev.size();
-    std::multimap<uint256, COrphanBlock*>::iterator it = bitcoin_orphanIndex.mapOrphanBlocksByPrev.begin();
-    while (pos--) it++;
-
-    // As long as this block has other orphans depending on it, move to one of those successors.
-    do {
-        std::multimap<uint256, COrphanBlock*>::iterator it2 = bitcoin_orphanIndex.mapOrphanBlocksByPrev.find(it->second->hashBlock);
-        if (it2 == bitcoin_orphanIndex.mapOrphanBlocksByPrev.end())
-            break;
-        it = it2;
-    } while(1);
-
-    const bool fStoredInMemory = it->second->fStoredInMemory;
-    const uint256 hash = it->second->hashBlock;
-    delete it->second;
-    bitcoin_orphanIndex.mapOrphanBlocksByPrev.erase(it);
-    bitcoin_orphanIndex.mapOrphanBlocks.erase(hash);
-    if(fStoredInMemory) {
-    	bitcoin_orphanIndex.nStoredInMemory--;
-    } else {
-    	Bitcoin_DeleteOrphanFromDisk(hash);
-    }
 }
 
 int64_t Bitcoin_GetBlockValue(int nHeight, int64_t nFees)
@@ -3837,10 +3780,12 @@ bool Bitcoin_ProcessBlock(CValidationState &state, CNode* pfrom, Bitcoin_CBlock*
 
         // Accept orphans as long as there is a node to request its parents from
         if (pfrom) {
-            Bitcoin_PruneOrphanBlocks();
+        	const int64_t nMaxOrphansMemory = GetArg("-bitcoin_maxorphanblocksmemory", BITCOIN_DEFAULT_MAX_ORPHAN_BLOCKS_MEMORY);
+        	const int64_t nMaxOrphansDisk = GetArg("-bitcoin_maxorphanblocksdisk", BITCOIN_DEFAULT_MAX_ORPHAN_BLOCKS_DISK);
+        	bitcoin_orphanIndex.PruneOrphanBlocks(nMaxOrphansMemory, nMaxOrphansDisk);
             COrphanBlock* pblock2 = new COrphanBlock();
             {
-            	if(bitcoin_orphanIndex.nStoredInMemory < GetArg("-bitcoin_maxorphanblocksmemory", BITCOIN_DEFAULT_MAX_ORPHAN_BLOCKS_MEMORY)) {
+            	if(bitcoin_orphanIndex.nStoredInMemory < nMaxOrphansMemory) {
 					CDataStream ss(SER_DISK, Bitcoin_Params().ClientVersion());
 					ss << *pblock;
 					pblock2->vchBlock = std::vector<unsigned char>(ss.begin(), ss.end());
@@ -3859,7 +3804,7 @@ bool Bitcoin_ProcessBlock(CValidationState &state, CNode* pfrom, Bitcoin_CBlock*
             bitcoin_orphanIndex.mapOrphanBlocksByPrev.insert(make_pair(pblock2->hashPrev, pblock2));
 
             // Ask this guy to fill in what we're missing
-            Bitcoin_PushGetBlocks(pfrom, (Bitcoin_CBlockIndex*)bitcoin_chainActive.Tip(), Bitcoin_GetOrphanRoot(hash));
+            Bitcoin_PushGetBlocks(pfrom, (Bitcoin_CBlockIndex*)bitcoin_chainActive.Tip(), bitcoin_orphanIndex.GetOrphanRoot(hash));
         }
         return true;
     }
@@ -3887,7 +3832,7 @@ bool Bitcoin_ProcessBlock(CValidationState &state, CNode* pfrom, Bitcoin_CBlock*
 					ss >> block;
             	} else {
 					if(!Bitcoin_ReadOrphanFromDisk(mi->second->hashBlock, block)) {
-						return error("Bitcoin: ProcessBlock() : FAILED read orphaned block from disk!");
+						return error("Bitcoin: ProcessBlock() : Read orphaned block from disk FAILED!");
 					}
             	}
             }
@@ -3897,12 +3842,8 @@ bool Bitcoin_ProcessBlock(CValidationState &state, CNode* pfrom, Bitcoin_CBlock*
             Bitcoin_CBlockIndex *pindexChild = NULL;
             if (Bitcoin_AcceptBlock(block, stateDummy, &pindexChild, NULL, Bitcoin_NetParams()))
                 vWorkQueue.push_back(mi->second->hashBlock);
-            bitcoin_orphanIndex.mapOrphanBlocks.erase(mi->second->hashBlock);
-            if(mi->second->fStoredInMemory) {
-            	bitcoin_orphanIndex.nStoredInMemory--;
-            } else {
-            	Bitcoin_DeleteOrphanFromDisk(mi->second->hashBlock);
-            }
+
+            bitcoin_orphanIndex.RemoveOrpan(mi->second);
             delete mi->second;
         }
         bitcoin_orphanIndex.mapOrphanBlocksByPrev.erase(hashPrev);
@@ -4832,7 +4773,7 @@ bool static Bitcoin_ProcessMessage(CNode* pfrom, string strCommand, CDataStream&
                         pfrom->AskFor(inv);
                 }
             } else if (inv.type == MSG_BLOCK && bitcoin_orphanIndex.mapOrphanBlocks.count(inv.hash)) {
-                Bitcoin_PushGetBlocks(pfrom, (Bitcoin_CBlockIndex*)bitcoin_chainActive.Tip(), Bitcoin_GetOrphanRoot(inv.hash));
+                Bitcoin_PushGetBlocks(pfrom, (Bitcoin_CBlockIndex*)bitcoin_chainActive.Tip(), bitcoin_orphanIndex.GetOrphanRoot(inv.hash));
             }
 
             // Track requests for our stuff
