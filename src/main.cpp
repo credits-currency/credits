@@ -55,7 +55,7 @@ int64_t Credits_CTransaction::nMinTxFee = 10000;  // Override with -mintxfee
 /** Fees smaller than this (in satoshi) are considered zero fee (for relaying and mining) */
 int64_t Credits_CTransaction::nMinRelayTxFee = 1000;
 
-COrphanIndex credits_orphanIndex("credits_orphan");
+COrphanIndex credits_orphanIndex("credits_orphans");
 
 map<uint256, Credits_CTransaction> bitcredit_mapOrphanTransactions;
 map<uint256, set<uint256> > bitcredit_mapOrphanTransactionsByPrev;

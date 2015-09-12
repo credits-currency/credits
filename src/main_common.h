@@ -119,7 +119,6 @@ public:
         mapOrphanBlocksByPrev.clear();
         mapOrphanBlocksByLinkedBitcoinBlock.clear();
         nStoredInMemory = 0;
-        orphanDir = "";
     }
 
     COrphanIndex(std::string orphanDirIn) {
@@ -178,9 +177,12 @@ public:
         	const std::string hashHex = hash.GetHex();
         	const std::string lastTwo = hashHex.substr(hashHex.size() - 2);
 
-            boost::filesystem::remove(GetTmpDataDir() / orphanDir / lastTwo / hashHex);
-
-            LogPrintf("Removed orphaned block %s from %s\n", hashHex, orphanDir);
+        	boost::filesystem::path removePath = GetTmpDataDir() / orphanDir / lastTwo / hashHex;
+            if(boost::filesystem::remove(removePath)) {
+            	LogPrintf("Removed orphaned block at %s\n", removePath);
+            } else {
+            	LogPrintf("ERROR: Couldn't remove orphaned block at %s\n", removePath);
+            }
         }
     }
 
