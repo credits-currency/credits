@@ -121,9 +121,6 @@ extern int bitcredit_nScriptCheckThreads;
 extern bool bitcredit_fTxIndex;
 extern unsigned int bitcredit_nCoinCacheSize;
 
-// Minimum disk space required - used in CheckDiskSpace()
-static const uint64_t bitcredit_nMinDiskSpace = 52428800;
-
 
 class Credits_CBlockTreeDB;
 class Credits_CTxUndo;
@@ -155,8 +152,6 @@ bool Credits_IndexOrphansFromDisk();
 void Credits_ProcessBitcoinLinkedOprhans(vector<Bitcoin_CBlockIndex*> &processForBlocks);
 /** Process an incoming block */
 bool Bitcredit_ProcessBlock(CValidationState &state, CNode* pfrom, Credits_CBlock* pblock, CDiskBlockPos *dbp = NULL);
-/** Check whether enough disk space is available for an incoming block */
-bool Credits_CheckDiskSpace(uint64_t nAdditionalBytes = 0);
 /** Open a block file (blk?????.dat) */
 FILE* Credits_OpenBlockFile(const CDiskBlockPos &pos, bool fReadOnly = false);
 /** Open an undo file (rev?????.dat) */

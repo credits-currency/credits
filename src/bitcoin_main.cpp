@@ -2387,7 +2387,7 @@ bool static Bitcoin_WriteChainState(CValidationState &state) {
         // twice (once in the log, and once in the tables). This is already
         // an overestimation, as most will delete an existing entry or
         // overwrite one. Still, use a conservative safety factor of 2.
-        if (!Bitcoin_CheckDiskSpace(100 * 2 * 2 * bitcoin_pcoinsTip->GetCacheSize()))
+        if (!CheckDiskSpace(100 * 2 * 2 * bitcoin_pcoinsTip->GetCacheSize()))
             return state.Error("out of disk space");
         Bitcoin_FlushBlockFile();
         bitcoin_pblocktree->Sync();
@@ -3357,7 +3357,7 @@ bool Bitcoin_FindBlockPos(CValidationState &state, CDiskBlockPos &pos, unsigned 
         unsigned int nOldChunks = (pos.nPos + BITCOIN_BLOCKFILE_CHUNK_SIZE - 1) / BITCOIN_BLOCKFILE_CHUNK_SIZE;
         unsigned int nNewChunks = (bitcoin_mainState.infoLastBlockFile.nSize + BITCOIN_BLOCKFILE_CHUNK_SIZE - 1) / BITCOIN_BLOCKFILE_CHUNK_SIZE;
         if (nNewChunks > nOldChunks) {
-            if (Bitcoin_CheckDiskSpace(nNewChunks * BITCOIN_BLOCKFILE_CHUNK_SIZE - pos.nPos)) {
+            if (CheckDiskSpace(nNewChunks * BITCOIN_BLOCKFILE_CHUNK_SIZE - pos.nPos)) {
                 FILE *file = Bitcoin_OpenBlockFile(pos);
                 if (file) {
                     LogPrintf("Bitcoin: Pre-allocating up to position 0x%x in blk%05u.dat\n", nNewChunks * BITCOIN_BLOCKFILE_CHUNK_SIZE, pos.nFile);
@@ -3403,7 +3403,7 @@ bool Bitcoin_FindCompressedPos(MainState& mainState, CValidationState &state, in
     unsigned int nOldChunks = (pos.nPos + BITCOIN_COMPRESSEDFILE_CHUNK_SIZE - 1) / BITCOIN_COMPRESSEDFILE_CHUNK_SIZE;
     unsigned int nNewChunks = (nNewSize + BITCOIN_COMPRESSEDFILE_CHUNK_SIZE - 1) / BITCOIN_COMPRESSEDFILE_CHUNK_SIZE;
     if (nNewChunks > nOldChunks) {
-        if (Bitcoin_CheckDiskSpace(nNewChunks * BITCOIN_COMPRESSEDFILE_CHUNK_SIZE - pos.nPos)) {
+        if (CheckDiskSpace(nNewChunks * BITCOIN_COMPRESSEDFILE_CHUNK_SIZE - pos.nPos)) {
             FILE *file = Bitcoin_OpenCompressedFile(pos);
             if (file) {
                 LogPrintf("Bitcoin: Pre-allocating up to position 0x%x in cpr%05u.dat\n", nNewChunks * BITCOIN_COMPRESSEDFILE_CHUNK_SIZE, pos.nFile);
@@ -3443,7 +3443,7 @@ bool Bitcoin_FindUndoPos(MainState& mainState, CValidationState &state, int nFil
     unsigned int nOldChunks = (pos.nPos + BITCOIN_UNDOFILE_CHUNK_SIZE - 1) / BITCOIN_UNDOFILE_CHUNK_SIZE;
     unsigned int nNewChunks = (nNewSize + BITCOIN_UNDOFILE_CHUNK_SIZE - 1) / BITCOIN_UNDOFILE_CHUNK_SIZE;
     if (nNewChunks > nOldChunks) {
-        if (Bitcoin_CheckDiskSpace(nNewChunks * BITCOIN_UNDOFILE_CHUNK_SIZE - pos.nPos)) {
+        if (CheckDiskSpace(nNewChunks * BITCOIN_UNDOFILE_CHUNK_SIZE - pos.nPos)) {
             FILE *file = Bitcoin_OpenUndoFile(pos);
             if (file) {
                 LogPrintf("Bitcoin: Pre-allocating up to position 0x%x in rev%05u.dat\n", nNewChunks * BITCOIN_UNDOFILE_CHUNK_SIZE, pos.nFile);
@@ -3483,7 +3483,7 @@ bool Bitcoin_FindUndoPosClaim(MainState& mainState, CValidationState &state, int
     unsigned int nOldChunks = (pos.nPos + BITCOIN_UNDOFILE_CHUNK_SIZE - 1) / BITCOIN_UNDOFILE_CHUNK_SIZE;
     unsigned int nNewChunks = (nNewSize + BITCOIN_UNDOFILE_CHUNK_SIZE - 1) / BITCOIN_UNDOFILE_CHUNK_SIZE;
     if (nNewChunks > nOldChunks) {
-        if (Bitcoin_CheckDiskSpace(nNewChunks * BITCOIN_UNDOFILE_CHUNK_SIZE - pos.nPos)) {
+        if (CheckDiskSpace(nNewChunks * BITCOIN_UNDOFILE_CHUNK_SIZE - pos.nPos)) {
             FILE *file = Bitcoin_OpenUndoFileClaim(pos);
             if (file) {
                 LogPrintf("Bitcoin: Pre-allocating up to position 0x%x in cla%05u.dat\n", nNewChunks * BITCOIN_UNDOFILE_CHUNK_SIZE, pos.nFile);
@@ -3917,13 +3917,12 @@ bool AbortNode(const std::string &strMessage) {
     return false;
 }
 
-
-bool Bitcoin_CheckDiskSpace(uint64_t nAdditionalBytes)
+bool CheckDiskSpace(uint64_t nAdditionalBytes)
 {
     uint64_t nFreeBytesAvailable = filesystem::space(GetDataDir()).available;
 
     // Check for nMinDiskSpace bytes (currently 50MB)
-    if (nFreeBytesAvailable < bitcoin_nMinDiskSpace + nAdditionalBytes)
+    if (nFreeBytesAvailable < nMinDiskSpace + nAdditionalBytes)
         return AbortNode(_("Error: Disk space is low!"));
 
     return true;

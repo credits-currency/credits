@@ -1817,9 +1817,7 @@ bool Bitcredit_AppInit2(boost::thread_group& threadGroup) {
     InitPeersFromNetParams(GetTimeMillis(), Credits_NetParams());
 
     // ********************************************************* Step 11: start node
-    if (!Bitcoin_CheckDiskSpace())
-        return false;
-    if (!Credits_CheckDiskSpace())
+    if (!CheckDiskSpace())
         return false;
 
     if (!strErrors.str().empty())

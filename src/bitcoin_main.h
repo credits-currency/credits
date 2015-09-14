@@ -110,7 +110,7 @@ extern bool bitcoin_fSimplifiedBlockValidation;
 extern unsigned int bitcoin_nCoinCacheSize;
 
 // Minimum disk space required - used in CheckDiskSpace()
-static const uint64_t bitcoin_nMinDiskSpace = 52428800;
+static const uint64_t nMinDiskSpace = 52428800;
 
 
 class Bitcoin_CBlockTreeDB;
@@ -143,7 +143,7 @@ bool Bitcoin_IndexOrphansFromDisk();
 /** Process an incoming block */
 bool Bitcoin_ProcessBlock(CValidationState &state, CNode* pfrom, Bitcoin_CBlock* pblock, CDiskBlockPos *dbp = NULL);
 /** Check whether enough disk space is available for an incoming block */
-bool Bitcoin_CheckDiskSpace(uint64_t nAdditionalBytes = 0);
+bool CheckDiskSpace(uint64_t nAdditionalBytes = 0);
 /** Open a block file (blk?????.dat) */
 FILE* Bitcoin_OpenBlockFile(const CDiskBlockPos &pos, bool fReadOnly = false);
 /** Open a compressed block file (cpr?????.dat) */

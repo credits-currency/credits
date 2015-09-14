@@ -2347,7 +2347,7 @@ bool static Bitcredit_WriteChainState(CValidationState &state) {
         // twice (once in the log, and once in the tables). This is already
         // an overestimation, as most will delete an existing entry or
         // overwrite one. Still, use a conservative safety factor of 2.
-        if (!Credits_CheckDiskSpace(100 * 2 * 2 * credits_pcoinsTip->GetCacheSize()))
+        if (!CheckDiskSpace(100 * 2 * 2 * credits_pcoinsTip->GetCacheSize()))
             return state.Error("out of disk space");
         Bitcredit_FlushBlockFile();
         bitcredit_pblocktree->Sync();
@@ -2796,7 +2796,7 @@ bool Bitcredit_FindBlockPos(CValidationState &state, CDiskBlockPos &pos, unsigne
         unsigned int nOldChunks = (pos.nPos + BITCREDIT_BLOCKFILE_CHUNK_SIZE - 1) / BITCREDIT_BLOCKFILE_CHUNK_SIZE;
         unsigned int nNewChunks = (credits_mainState.infoLastBlockFile.nSize + BITCREDIT_BLOCKFILE_CHUNK_SIZE - 1) / BITCREDIT_BLOCKFILE_CHUNK_SIZE;
         if (nNewChunks > nOldChunks) {
-            if (Credits_CheckDiskSpace(nNewChunks * BITCREDIT_BLOCKFILE_CHUNK_SIZE - pos.nPos)) {
+            if (CheckDiskSpace(nNewChunks * BITCREDIT_BLOCKFILE_CHUNK_SIZE - pos.nPos)) {
                 FILE *file = Credits_OpenBlockFile(pos);
                 if (file) {
                     LogPrintf("Credits: Pre-allocating up to position 0x%x in blk%05u.dat\n", nNewChunks * BITCREDIT_BLOCKFILE_CHUNK_SIZE, pos.nFile);
@@ -2842,7 +2842,7 @@ bool Bitcredit_FindUndoPos(MainState& mainState, CValidationState &state, int nF
     unsigned int nOldChunks = (pos.nPos + BITCREDIT_UNDOFILE_CHUNK_SIZE - 1) / BITCREDIT_UNDOFILE_CHUNK_SIZE;
     unsigned int nNewChunks = (nNewSize + BITCREDIT_UNDOFILE_CHUNK_SIZE - 1) / BITCREDIT_UNDOFILE_CHUNK_SIZE;
     if (nNewChunks > nOldChunks) {
-        if (Credits_CheckDiskSpace(nNewChunks * BITCREDIT_UNDOFILE_CHUNK_SIZE - pos.nPos)) {
+        if (CheckDiskSpace(nNewChunks * BITCREDIT_UNDOFILE_CHUNK_SIZE - pos.nPos)) {
             FILE *file = Credits_OpenUndoFile(pos);
             if (file) {
                 LogPrintf("Credits: Pre-allocating up to position 0x%x in rev%05u.dat\n", nNewChunks * BITCREDIT_UNDOFILE_CHUNK_SIZE, pos.nFile);
@@ -3448,26 +3448,6 @@ Credits_CMerkleBlock::Credits_CMerkleBlock(const Credits_CBlock& block, CBloomFi
 
 
 
-
-
-
-
-
-
-
-
-
-
-bool Credits_CheckDiskSpace(uint64_t nAdditionalBytes)
-{
-    uint64_t nFreeBytesAvailable = filesystem::space(GetDataDir()).available;
-
-    // Check for nMinDiskSpace bytes (currently 50MB)
-    if (nFreeBytesAvailable < bitcredit_nMinDiskSpace + nAdditionalBytes)
-        return AbortNode(_("Error: Disk space is low!"));
-
-    return true;
-}
 
 FILE* Credits_OpenBlockFile(const CDiskBlockPos &pos, bool fReadOnly) {
     return OpenDiskFile(pos, "credits_blocks", "blk", fReadOnly);
