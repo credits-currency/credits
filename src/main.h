@@ -151,6 +151,8 @@ void Bitcredit_PushGetBlocks(CNode* pnode, Credits_CBlockIndex* pindexBegin, uin
 
 /** Used from init to re-read all the orphan info for Credits blocks **/
 bool Credits_IndexOrphansFromDisk();
+/** Once a bitcoin block has been received, process all credits orphans that references it */
+void Credits_ProcessBitcoinLinkedOprhans(vector<Bitcoin_CBlockIndex*> &processForBlocks);
 /** Process an incoming block */
 bool Bitcredit_ProcessBlock(CValidationState &state, CNode* pfrom, Credits_CBlock* pblock, CDiskBlockPos *dbp = NULL);
 /** Check whether enough disk space is available for an incoming block */

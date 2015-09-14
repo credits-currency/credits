@@ -3286,21 +3286,57 @@ bool Credits_ProcessOrphans(const uint256 &hashInit)
             }
             block.BuildMerkleTree();
             block.BuildSigMerkleTree();
-            // Use a dummy CValidationState so someone can't setup nodes to counter-DoS based on orphan resolution (that is, feeding people an invalid block based on LegitBlockX in order to get anyone relaying LegitBlockX banned)
-            CValidationState stateDummy;
-            Credits_CBlockIndex *pindexChild = NULL;
-            if (Bitcredit_AcceptBlock(block, stateDummy, &pindexChild, NULL, Credits_NetParams()))
-                vWorkQueue.push_back(mi->second->hashBlock);
 
-            credits_orphanIndex.RemoveOrpan(mi->second);
-            //Gather all connected orphans for later deletion
-            deleteOrphans.push_back(mi->second);
+            CValidationState stateDummy;
+            //If we have a correctly linked bitcoin block
+            if(Credits_CheckLinkedBitcoinBlock(block, stateDummy)) {
+				// Use a dummy CValidationState so someone can't setup nodes to counter-DoS based on orphan resolution (that is, feeding people an invalid block based on LegitBlockX in order to get anyone relaying LegitBlockX banned)
+				Credits_CBlockIndex *pindexChild = NULL;
+				if (Bitcredit_AcceptBlock(block, stateDummy, &pindexChild, NULL, Credits_NetParams()))
+					vWorkQueue.push_back(mi->second->hashBlock);
+
+				credits_orphanIndex.RemoveOrpan(mi->second);
+				//Gather all connected orphans for later deletion
+				deleteOrphans.push_back(mi->second);
+            }
         }
 
 		//Delete all gathered orphans
         credits_orphanIndex.DeletePrevPartial(hashPrev, deleteOrphans);
     }
     return true;
+}
+
+void Credits_ProcessBitcoinLinkedOprhans(vector<Bitcoin_CBlockIndex*> &linkedBitcoinBlocks) {
+	if(credits_orphanIndex.mapOrphanBlocksByLinkedBitcoinBlock.size() == 0) {
+		return;
+	}
+
+	//Used to stop when no more orphan blocks are removed by processing them
+	BOOST_FOREACH(const Bitcoin_CBlockIndex* pLinkedBitcoinBlock, linkedBitcoinBlocks) {
+		//Find all orphan roots and if their previous block exists in the block index
+		const uint256 hashLinkedBlock = pLinkedBitcoinBlock->GetBlockHash();
+		if(credits_orphanIndex.mapOrphanBlocksByLinkedBitcoinBlock.count(hashLinkedBlock) > 0) {
+			std::set<uint256> hashOrphanRootPrevs;
+
+			//Find the orphan roots for any loose chains that may exist, index on those roots previous block
+			for (multimap<uint256, COrphanBlock*>::iterator mi = credits_orphanIndex.mapOrphanBlocksByLinkedBitcoinBlock.lower_bound(hashLinkedBlock);
+				 mi != credits_orphanIndex.mapOrphanBlocksByLinkedBitcoinBlock.upper_bound(hashLinkedBlock); ++mi) {
+				const uint256 hashPrev = credits_orphanIndex.mapOrphanBlocks[credits_orphanIndex.GetOrphanRoot(mi->second->hashBlock)]->hashPrev;
+				if(credits_mapBlockIndex.count(hashPrev)) {
+					hashOrphanRootPrevs.insert(hashPrev);
+				}
+			}
+
+			//Trigger orphan processing for all blocks that have been identified as having non-processed blocks
+			BOOST_FOREACH(const uint256& hash, hashOrphanRootPrevs) {
+				if(!Credits_ProcessOrphans(hash)) {
+					//Do not fail for credits linking, only error log
+					LogPrintf("Credits_ProcessByLinkedBitcoinBlock() : ERROR: Processing of orphan block FAILED!\nBlock hash is %s\n", hash.GetHex());
+				}
+			}
+		}
+	}
 }
 
 bool Bitcredit_ProcessBlock(CValidationState &state, CNode* pfrom, Credits_CBlock* pblock, CDiskBlockPos *dbp)

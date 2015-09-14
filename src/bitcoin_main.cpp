@@ -3809,6 +3809,8 @@ bool Bitcoin_ProcessBlock(CValidationState &state, CNode* pfrom, Bitcoin_CBlock*
         return true;
     }
 
+    const unsigned int nHeightBefore = bitcoin_chainActive.Tip()->nHeight;
+
     // Store to disk
     Bitcoin_CBlockIndex *pindex = NULL;
     bool ret = Bitcoin_AcceptBlock(*pblock, state, &pindex, dbp, Bitcoin_NetParams());
@@ -3840,8 +3842,10 @@ bool Bitcoin_ProcessBlock(CValidationState &state, CNode* pfrom, Bitcoin_CBlock*
             // Use a dummy CValidationState so someone can't setup nodes to counter-DoS based on orphan resolution (that is, feeding people an invalid block based on LegitBlockX in order to get anyone relaying LegitBlockX banned)
             CValidationState stateDummy;
             Bitcoin_CBlockIndex *pindexChild = NULL;
-            if (Bitcoin_AcceptBlock(block, stateDummy, &pindexChild, NULL, Bitcoin_NetParams()))
+            if (Bitcoin_AcceptBlock(block, stateDummy, &pindexChild, NULL, Bitcoin_NetParams())) {
                 vWorkQueue.push_back(mi->second->hashBlock);
+                bitcoin_mapBlockIndex[block.GetHash()];
+            }
 
             bitcoin_orphanIndex.RemoveOrpan(mi->second);
             delete mi->second;
@@ -3850,6 +3854,24 @@ bool Bitcoin_ProcessBlock(CValidationState &state, CNode* pfrom, Bitcoin_CBlock*
     }
 
     LogPrintf("Bitcoin: ProcessBlock: ACCEPTED\n");
+
+    //Once a block and all it's orphans have been processed, trigger processing
+    //of all orphaned credits blocks that references the newly accepted bitcoin blocks
+    const unsigned int nHeightAfter = bitcoin_chainActive.Tip()->nHeight;
+    const unsigned int nAcceptDepth = Credits_Params().AcceptDepthLinkedBitcoinBlock();
+    if(nHeightAfter > nHeightBefore && nHeightBefore >= nAcceptDepth) {
+    	Bitcoin_CBlockIndex* pAcceptBlockBefore = bitcoin_chainActive[nHeightBefore - nAcceptDepth];
+    	Bitcoin_CBlockIndex* pAcceptBlockAfter = bitcoin_chainActive[nHeightAfter - nAcceptDepth];
+
+    	vector<Bitcoin_CBlockIndex*> triggerBlocks;
+    	Bitcoin_CBlockIndex* pCurrent = pAcceptBlockBefore;
+    	while(pCurrent != pAcceptBlockAfter) {
+    		triggerBlocks.push_back(pCurrent);
+    		pCurrent = (Bitcoin_CBlockIndex*)bitcoin_chainActive.Next(pCurrent);
+    	}
+
+    	Credits_ProcessBitcoinLinkedOprhans(triggerBlocks);
+    }
 
     return true;
 }
