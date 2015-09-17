@@ -3351,62 +3351,73 @@ bool Bitcredit_ProcessBlock(CValidationState &state, CNode* pfrom, Credits_CBloc
     uint256 hash = pblock->GetHash();
     if (credits_mapBlockIndex.count(hash))
         return state.Invalid(error("Credits: ProcessBlock() : already have block %d %s", credits_mapBlockIndex[hash]->nHeight, hash.ToString()), 0, "duplicate");
-    if (credits_orphanIndex.mapOrphanBlocks.count(hash))
-        return state.Invalid(error("Credits: ProcessBlock() : already have block (orphan) %s", hash.ToString()), 0, "duplicate");
-
-    // Preliminary checks
-    if (!Bitcredit_CheckBlock(*pblock, state, true, true, false))
-        return error("Credits: ProcessBlock() : CheckBlock FAILED");
-
-    //If we have an incorrectly linked bitcoin block
-    const bool fIncorrectLinkedBitcoinBlock = !Credits_CheckLinkedBitcoinBlock(*pblock, state);
-    // If we don't already have its previous block (with full data), shunt it off to holding area until we get it
-    std::map<uint256, Credits_CBlockIndex*>::iterator it = credits_mapBlockIndex.find(pblock->hashPrevBlock);
-    const bool fPreviousMissing = pblock->hashPrevBlock != 0 && (it == credits_mapBlockIndex.end() || !(it->second->nStatus & BLOCK_HAVE_DATA));
-    if (fIncorrectLinkedBitcoinBlock || fPreviousMissing)
-    {
-        LogPrintf("Credits: ProcessBlock: ORPHAN BLOCK %lu, prev=%s\n", (unsigned long)credits_orphanIndex.mapOrphanBlocks.size(), pblock->hashPrevBlock.ToString());
-
-        // Accept orphans as long as there is a node to request its parents from
-        if (pfrom) {
-        	const int64_t nMaxOrphansMemory = GetArg("-maxorphanblocksmemory", BITCREDIT_DEFAULT_MAX_ORPHAN_BLOCKS_MEMORY);
-        	const int64_t nMaxOrphansDisk = GetArg("-maxorphanblocksdisk", BITCREDIT_DEFAULT_MAX_ORPHAN_BLOCKS_DISK);
-        	credits_orphanIndex.PruneOrphanBlocks(nMaxOrphansMemory, nMaxOrphansDisk);
-            COrphanBlock* pblock2 = new COrphanBlock();
-            {
-            	if(credits_orphanIndex.nStoredInMemory < nMaxOrphansMemory) {
-					CDataStream ss(SER_DISK, CREDITS_CLIENT_VERSION);
-					ss << *pblock;
-					pblock2->vchBlock = std::vector<unsigned char>(ss.begin(), ss.end());
-					pblock2->fStoredInMemory = true;
-					credits_orphanIndex.nStoredInMemory++;
-            	} else {
-					if(!Credits_WriteOrphanToDisk(*pblock, pfrom)) {
-						return error("Credits: ProcessBlock() : FAILED to write orphan to disk");
-					}
-					pblock2->fStoredInMemory = false;
-            	}
-            }
-            pblock2->hashBlock = hash;
-            pblock2->hashPrev = pblock->hashPrevBlock;
-            pblock2->hashLinkedBitcoinBlock = pblock->hashLinkedBitcoinBlock;
-
-            credits_orphanIndex.mapOrphanBlocks.insert(make_pair(hash, pblock2));
-            credits_orphanIndex.mapOrphanBlocksByPrev.insert(make_pair(pblock2->hashPrev, pblock2));
-            credits_orphanIndex.mapOrphanBlocksByLinkedBitcoinBlock.insert(make_pair(pblock2->hashLinkedBitcoinBlock, pblock2));
-
-            if(fPreviousMissing) {
-				// Ask this guy to fill in what we're missing
-				Bitcredit_PushGetBlocks(pfrom, (Credits_CBlockIndex*)credits_chainActive.Tip(), credits_orphanIndex.GetOrphanRoot(hash));
-            }
+    if (credits_orphanIndex.mapOrphanBlocks.count(hash)) {
+        //If the block passed in validates with regards to bitcoin link and previous accepted, try accepting it
+        if(Credits_CheckLinkedBitcoinBlock(*pblock, state) && credits_mapBlockIndex.count(pblock->hashPrevBlock) > 0) {
+        	//Change the hash to refer to previous block instead
+        	hash = pblock->hashPrevBlock;
+        } else {
+        	return state.Invalid(error("Credits: ProcessBlock() : already have block (orphan) %s", hash.ToString()), 0, "duplicate");
         }
-        return true;
     }
 
-    // Store to disk
-    Credits_CBlockIndex *pindex = NULL;
-    if(!Bitcredit_AcceptBlock(*pblock, state, &pindex, dbp, Credits_NetParams()))
-        return error("Credits: ProcessBlock() : AcceptBlock FAILED");
+    //If the block we should process from hasn't changed up until here, proceed with block accept
+    //If it has changed, hash refers to the previously already accepted parent block
+    if(hash == pblock->GetHash()) {
+		// Preliminary checks
+		if (!Bitcredit_CheckBlock(*pblock, state, true, true, false))
+			return error("Credits: ProcessBlock() : CheckBlock FAILED");
+
+		//If we have an incorrectly linked bitcoin block
+		const bool fIncorrectLinkedBitcoinBlock = !Credits_CheckLinkedBitcoinBlock(*pblock, state);
+		// If we don't already have its previous block (with full data), shunt it off to holding area until we get it
+		std::map<uint256, Credits_CBlockIndex*>::iterator it = credits_mapBlockIndex.find(pblock->hashPrevBlock);
+		const bool fPreviousMissing = pblock->hashPrevBlock != 0 && (it == credits_mapBlockIndex.end() || !(it->second->nStatus & BLOCK_HAVE_DATA));
+		if (fIncorrectLinkedBitcoinBlock || fPreviousMissing)
+		{
+			LogPrintf("Credits: ProcessBlock: ORPHAN BLOCK %lu, prev=%s\n", (unsigned long)credits_orphanIndex.mapOrphanBlocks.size(), pblock->hashPrevBlock.ToString());
+
+			// Accept orphans as long as there is a node to request its parents from
+			if (pfrom) {
+				const int64_t nMaxOrphansMemory = GetArg("-maxorphanblocksmemory", BITCREDIT_DEFAULT_MAX_ORPHAN_BLOCKS_MEMORY);
+				const int64_t nMaxOrphansDisk = GetArg("-maxorphanblocksdisk", BITCREDIT_DEFAULT_MAX_ORPHAN_BLOCKS_DISK);
+				credits_orphanIndex.PruneOrphanBlocks(nMaxOrphansMemory, nMaxOrphansDisk);
+				COrphanBlock* pblock2 = new COrphanBlock();
+				{
+					if(credits_orphanIndex.nStoredInMemory < nMaxOrphansMemory) {
+						CDataStream ss(SER_DISK, CREDITS_CLIENT_VERSION);
+						ss << *pblock;
+						pblock2->vchBlock = std::vector<unsigned char>(ss.begin(), ss.end());
+						pblock2->fStoredInMemory = true;
+						credits_orphanIndex.nStoredInMemory++;
+					} else {
+						if(!Credits_WriteOrphanToDisk(*pblock, pfrom)) {
+							return error("Credits: ProcessBlock() : FAILED to write orphan to disk");
+						}
+						pblock2->fStoredInMemory = false;
+					}
+				}
+				pblock2->hashBlock = hash;
+				pblock2->hashPrev = pblock->hashPrevBlock;
+				pblock2->hashLinkedBitcoinBlock = pblock->hashLinkedBitcoinBlock;
+
+				credits_orphanIndex.mapOrphanBlocks.insert(make_pair(hash, pblock2));
+				credits_orphanIndex.mapOrphanBlocksByPrev.insert(make_pair(pblock2->hashPrev, pblock2));
+				credits_orphanIndex.mapOrphanBlocksByLinkedBitcoinBlock.insert(make_pair(pblock2->hashLinkedBitcoinBlock, pblock2));
+
+				if(fPreviousMissing) {
+					// Ask this guy to fill in what we're missing
+					Bitcredit_PushGetBlocks(pfrom, (Credits_CBlockIndex*)credits_chainActive.Tip(), credits_orphanIndex.GetOrphanRoot(hash));
+				}
+			}
+			return true;
+		}
+
+		// Store to disk
+		Credits_CBlockIndex *pindex = NULL;
+		if(!Bitcredit_AcceptBlock(*pblock, state, &pindex, dbp, Credits_NetParams()))
+			return error("Credits: ProcessBlock() : AcceptBlock FAILED");
+    }
 
     if(!Credits_ProcessOrphans(hash))
         return error("Credits: ProcessBlock() : ProcessOrphans FAILED");
@@ -4491,7 +4502,7 @@ bool static Bitcredit_ProcessMessage(CMessageHeader& hdr, CNode* pfrom, string s
     }
 
 
-    else if (strCommand == "block" && !credits_mainState.ImportingOrReindexing()) // Ignore blocks received while importing
+    else if (strCommand == "block" && !credits_mainState.ImportingOrReindexing()  && !Bitcoin_IsInitialBlockDownload()) // Ignore blocks received while importing
     {
         Credits_CBlock block;
         vRecv >> block;
