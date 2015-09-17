@@ -422,20 +422,18 @@ bool GetMyExternalIP(CNetAddr& ipRet, CNetParams * netParams)
     return false;
 }
 
-void GetMyExternalIP(CNetParams * netParams)
-{
+void ThreadGetMyExternalIP() {
+	CNetParams * bitcoin_netParams = Bitcoin_NetParams();
+	CNetParams * credits_netParams = Credits_NetParams();
     CNetAddr addrLocalHost;
-    if (GetMyExternalIP(addrLocalHost, netParams))
+    if (GetMyExternalIP(addrLocalHost, credits_netParams))
     {
         LogPrintf("GetMyExternalIP() returned %s\n", addrLocalHost.ToStringIP());
-        AddLocal(addrLocalHost, LOCAL_HTTP, netParams);
+    	if (!IsLimited(NET_IPV4, bitcoin_netParams))
+    		AddLocal(addrLocalHost, LOCAL_HTTP, bitcoin_netParams);
+    	if (!IsLimited(NET_IPV4, credits_netParams))
+    		AddLocal(addrLocalHost, LOCAL_HTTP, credits_netParams);
     }
-}
-void Bitcredit_ThreadGetMyExternalIP() {
-	GetMyExternalIP(Credits_NetParams());
-}
-void Bitcoin_ThreadGetMyExternalIP() {
-	GetMyExternalIP(Bitcoin_NetParams());
 }
 
 
@@ -1816,21 +1814,18 @@ void StartNode(boost::thread_group& threadGroup)
 	Discover(bitcredit_netParams);
 
 	// Don't use external IPv4 discovery, when -onlynet="IPv6"
-	if (!IsLimited(NET_IPV4, bitcoin_netParams))
-	    threadGroup.create_thread(boost::bind(&TraceThread<void (*)()>, "bitcoin_ext-ip", &Bitcoin_ThreadGetMyExternalIP));
-	// Don't use external IPv4 discovery, when -onlynet="IPv6"
-	if (!IsLimited(NET_IPV4, bitcredit_netParams))
-	    threadGroup.create_thread(boost::bind(&TraceThread<void (*)()>, "bitcredit_ext-ip", &Bitcredit_ThreadGetMyExternalIP));
+	if (!IsLimited(NET_IPV4, bitcoin_netParams) || !IsLimited(NET_IPV4, bitcredit_netParams))
+	    threadGroup.create_thread(boost::bind(&TraceThread<void (*)()>, "ext-ip", &ThreadGetMyExternalIP));
 
     //
     // Start threads
     //
     if (!GetBoolArg("-bitcoin_dnsseed", true))
-        LogPrintf("DNS seeding disabled\n");
+        LogPrintf("DNS seeding disabled for Bitcoin\n");
     else
         threadGroup.create_thread(boost::bind(&TraceThread<void (*)()>, "bitcoin_dnsseed", &Bitcoin_ThreadDNSAddressSeed));
    if (!GetBoolArg("-dnsseed", true))
-        LogPrintf("DNS seeding disabled\n");
+        LogPrintf("DNS seeding disabled for Credits\n");
     else
         threadGroup.create_thread(boost::bind(&TraceThread<void (*)()>, "bitcredit_dnsseed", &Bitcredit_ThreadDNSAddressSeed));
 
