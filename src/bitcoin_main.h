@@ -1016,6 +1016,9 @@ extern Bitcoin_CCoinsViewCache *bitcoin_pcoinsTip;
 /** Global variable that points to the active block tree (protected by cs_main) */
 extern Bitcoin_CBlockTreeDB *bitcoin_pblocktree;
 
+/** The index for orphan blocks currently stored in-memory or on disk. */
+extern COrphanIndex bitcoin_orphanIndex;
+
 struct Bitcoin_CBlockTemplate
 {
 	Bitcoin_CBlock block;

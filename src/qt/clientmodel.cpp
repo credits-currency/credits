@@ -23,15 +23,18 @@
 
 static const int64_t nClientStartupTime = GetTime();
 
-ClientModel::ClientModel(OptionsModel *optionsModel, QObject *parent, CNetParams * netParamsIn, MainState& mainStateIn, CChain& chainActiveIn) :
+ClientModel::ClientModel(OptionsModel *optionsModel, QObject *parent, CNetParams * netParamsIn, MainState& mainStateIn, CChain& chainActiveIn, COrphanIndex& orphanIndexIn) :
     QObject(parent),
     optionsModel(optionsModel),
     peerTableModel(0),
     cachedNumBlocks(0),
+    cachedNumBlocksOrphanMemory(0),
+    cachedNumBlocksOrphanDisk(0),
     cachedReindexing(0), cachedImporting(0),
     numBlocksAtStartup(-1), pollTimer(0),
     mainState(mainStateIn),
-    chainActive(chainActiveIn)
+    chainActive(chainActiveIn),
+    orphanIndex(orphanIndexIn)
 {
 	netParams = netParamsIn;
     peerTableModel = new PeerTableModel(this);
@@ -75,6 +78,17 @@ int ClientModel::getNumBlocksAtStartup()
 {
     if (numBlocksAtStartup == -1) numBlocksAtStartup = getNumBlocks();
     return numBlocksAtStartup;
+}
+
+int ClientModel::getNumBlocksOrphanMemory() const
+{
+    LOCK(mainState.cs_main);
+    return orphanIndex.nStoredInMemory;
+}
+int ClientModel::getNumBlocksOrphanDisk() const
+{
+    LOCK(mainState.cs_main);
+    return orphanIndex.mapOrphanBlocks.size() - orphanIndex.nStoredInMemory;
 }
 
 quint64 ClientModel::getTotalBytesRecv() const
@@ -132,16 +146,22 @@ void ClientModel::updateTimer()
     // Some quantities (such as number of blocks) change so fast that we don't want to be notified for each change.
     // Periodically check and update with a timer.
     int newNumBlocks = getNumBlocks();
+    int newNumBlocksOrphanMemory = getNumBlocksOrphanMemory();
+    int newNumBlocksOrphanDisk = getNumBlocksOrphanDisk();
 
     // check for changed number of blocks we have, number of blocks peers claim to have, reindexing state and importing state
     if (cachedNumBlocks != newNumBlocks ||
+    	cachedNumBlocksOrphanMemory != newNumBlocksOrphanMemory ||
+    	cachedNumBlocksOrphanDisk != newNumBlocksOrphanDisk ||
         cachedReindexing != mainState.fReindex || cachedImporting != mainState.fImporting)
     {
         cachedNumBlocks = newNumBlocks;
+        cachedNumBlocksOrphanMemory = newNumBlocksOrphanMemory;
+        cachedNumBlocksOrphanDisk = newNumBlocksOrphanDisk;
         cachedReindexing = mainState.fReindex;
         cachedImporting = mainState.fImporting;
 
-        emit numBlocksChanged(newNumBlocks);
+        emit numBlocksChanged(newNumBlocks, newNumBlocksOrphanMemory, newNumBlocksOrphanDisk);
     }
 
     emit bytesChanged(getTotalBytesRecv(), getTotalBytesSent());

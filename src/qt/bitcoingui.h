@@ -166,8 +166,8 @@ public slots:
     void bitcredit_setNumConnections(int count);
     void bitcoin_setNumConnections(int count);
     /** Set number of blocks shown in the UI */
-    void bitcredit_setNumBlocks(int count);
-    void bitcoin_setNumBlocks(int count);
+    void bitcredit_setNumBlocks(int numBlocks, int numBlocksOrphanMemory, int numBlocksOrphanDisk);
+    void bitcoin_setNumBlocks(int numBlocks, int numBlocksOrphanMemory, int numBlocksOrphanDisk);
 
     /** Notify the user of an event from the core network or transaction handling code.
        @param[in] title     the message box / notification title

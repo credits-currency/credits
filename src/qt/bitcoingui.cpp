@@ -594,8 +594,8 @@ void BitcreditGUI::bitcredit_setClientModel(ClientModel *clientModel)
         bitcredit_setNumConnections(clientModel->getNumConnections());
         connect(clientModel, SIGNAL(numConnectionsChanged(int)), this, SLOT(bitcredit_setNumConnections(int)));
 
-        bitcredit_setNumBlocks(clientModel->getNumBlocks());
-        connect(clientModel, SIGNAL(numBlocksChanged(int)), this, SLOT(bitcredit_setNumBlocks(int)));
+        bitcredit_setNumBlocks(clientModel->getNumBlocks(), clientModel->getNumBlocksOrphanMemory(), clientModel->getNumBlocksOrphanDisk());
+        connect(clientModel, SIGNAL(numBlocksChanged(int, int, int)), this, SLOT(bitcredit_setNumBlocks(int, int, int)));
 
         // Receive and report messages from client model
         connect(clientModel, SIGNAL(message(QString,QString,unsigned int)), this, SLOT(message(QString,QString,unsigned int)));
@@ -625,8 +625,8 @@ void BitcreditGUI::bitcoin_setClientModel(ClientModel *clientModel)
         bitcoin_setNumConnections(clientModel->getNumConnections());
         connect(clientModel, SIGNAL(numConnectionsChanged(int)), this, SLOT(bitcoin_setNumConnections(int)));
 
-        bitcoin_setNumBlocks(clientModel->getNumBlocks());
-        connect(clientModel, SIGNAL(numBlocksChanged(int)), this, SLOT(bitcoin_setNumBlocks(int)));
+        bitcoin_setNumBlocks(clientModel->getNumBlocks(), clientModel->getNumBlocksOrphanMemory(), clientModel->getNumBlocksOrphanDisk());
+        connect(clientModel, SIGNAL(numBlocksChanged(int, int, int)), this, SLOT(bitcoin_setNumBlocks(int, int, int)));
 
         // Receive and report messages from client model
         connect(clientModel, SIGNAL(message(QString,QString,unsigned int)), this, SLOT(message(QString,QString,unsigned int)));
@@ -906,7 +906,7 @@ void BitcreditGUI::bitcoin_setNumConnections(int count)
     bitcoin_labelConnectionsIcon->setToolTip(tr("Bitcoin: %n active connection(s) to network", "", count));
 }
 
-void BitcreditGUI::bitcredit_setNumBlocks(int count)
+void BitcreditGUI::bitcredit_setNumBlocks(int numBlocks, int numBlocksOrphanMemory, int numBlocksOrphanDisk)
 {
     // Prevent orphan statusbar messages (e.g. hover Quit in main menu, wait until chain-sync starts -> garbelled text)
     statusBar()->clearMessage();
@@ -935,7 +935,11 @@ void BitcreditGUI::bitcredit_setNumBlocks(int count)
     QDateTime currentDate = QDateTime::currentDateTime();
     int secs = lastBlockDate.secsTo(currentDate);
 
-    tooltip = tr("Processed %1 credits blocks of transaction history.").arg(count);
+    tooltip = tr("Processed %1 credits blocks of transaction history.").arg(numBlocks);
+
+    const int totalOrphans = numBlocksOrphanMemory + numBlocksOrphanDisk;
+    if(totalOrphans > 0)
+    	tooltip += QString("<br>") + tr("%1 blocks stored for later processing (%2 in memory, %3 on disk).").arg(totalOrphans).arg(numBlocksOrphanMemory).arg(numBlocksOrphanDisk);
 
     // Set icon state: spinning if catching up, tick otherwise
     if(secs < 90*60)
@@ -987,14 +991,16 @@ void BitcreditGUI::bitcredit_setNumBlocks(int count)
         bitcredit_progressBar->setVisible(true);
 
         tooltip = tr("Credits: Catching up...") + QString("<br>") + tooltip;
-        if(count != bitcredit_prevBlocks)
+
+        const bool hasOrphans = numBlocks == 0 && numBlocksOrphanMemory + numBlocksOrphanDisk > 0;
+        if(hasOrphans || numBlocks != bitcredit_prevBlocks)
         {
             bitcredit_labelBlocksIcon->setPixmap(QIcon(QString(
                 ":/movies/spinner-%1").arg(bitcredit_spinnerFrame, 3, 10, QChar('0')))
                 .pixmap(STATUSBAR_ICONSIZE, STATUSBAR_ICONSIZE));
             bitcredit_spinnerFrame = (bitcredit_spinnerFrame + 1) % SPINNER_FRAMES;
         }
-        bitcredit_prevBlocks = count;
+        bitcredit_prevBlocks = numBlocks;
 
 #ifdef ENABLE_WALLET
         if(walletFrame) {
@@ -1016,10 +1022,10 @@ void BitcreditGUI::bitcredit_setNumBlocks(int count)
     bitcredit_progressBarLabel->setToolTip(tooltip);
     bitcredit_progressBar->setToolTip(tooltip);
 
-    walletFrame->bitcredit_setNumBlocks(count);
+    walletFrame->bitcredit_setNumBlocks(numBlocks);
 }
 
-void BitcreditGUI::bitcoin_setNumBlocks(int count)
+void BitcreditGUI::bitcoin_setNumBlocks(int numBlocks, int numBlocksOrphanMemory, int numBlocksOrphanDisk)
 {
     // Prevent orphan statusbar messages (e.g. hover Quit in main menu, wait until chain-sync starts -> garbelled text)
     statusBar()->clearMessage();
@@ -1048,7 +1054,11 @@ void BitcreditGUI::bitcoin_setNumBlocks(int count)
     QDateTime currentDate = QDateTime::currentDateTime();
     int secs = lastBlockDate.secsTo(currentDate);
 
-    tooltip = tr("Processed %1 bitcoin blocks of transaction history.").arg(count);
+    tooltip = tr("Processed %1 bitcoin blocks of transaction history.").arg(numBlocks);
+
+    const int totalOrphans = numBlocksOrphanMemory + numBlocksOrphanDisk;
+    if(totalOrphans > 0)
+    	tooltip += QString("<br>") + tr("%1 blocks stored for later processing (%2 in memory, %3 on disk).").arg(totalOrphans).arg(numBlocksOrphanMemory).arg(numBlocksOrphanDisk);
 
     // Set icon state: spinning if catching up, tick otherwise
     if(secs < 90*60)
@@ -1093,14 +1103,14 @@ void BitcreditGUI::bitcoin_setNumBlocks(int count)
         bitcoin_progressBar->setVisible(true);
 
         tooltip = tr("Bitcoin: Catching up...") + QString("<br>") + tooltip;
-        if(count != bitcoin_prevBlocks)
+        if(numBlocks != bitcoin_prevBlocks)
         {
             bitcoin_labelBlocksIcon->setPixmap(QIcon(QString(
                 ":/movies/spinner-%1").arg(bitcoin_spinnerFrame, 3, 10, QChar('0')))
                 .pixmap(STATUSBAR_ICONSIZE, STATUSBAR_ICONSIZE));
             bitcoin_spinnerFrame = (bitcoin_spinnerFrame + 1) % SPINNER_FRAMES;
         }
-        bitcoin_prevBlocks = count;
+        bitcoin_prevBlocks = numBlocks;
 
         tooltip += QString("<br>");
         tooltip += tr("Last received bitcoin block was generated %1 ago.").arg(timeBehindText);

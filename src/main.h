@@ -813,6 +813,9 @@ extern Credits_CCoinsViewCache *credits_pcoinsTip;
 /** Global variable that points to the active block tree (protected by cs_main) */
 extern Credits_CBlockTreeDB *bitcredit_pblocktree;
 
+/** The index for orphan blocks currently stored in-memory or on disk. */
+extern COrphanIndex credits_orphanIndex;
+
 struct Credits_CBlockTemplate
 {
 	Credits_CBlock block;
