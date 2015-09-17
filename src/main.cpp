@@ -3337,6 +3337,8 @@ void Credits_ProcessBitcoinLinkedOprhans(vector<Bitcoin_CBlockIndex*> &linkedBit
 				if(!Credits_ProcessOrphans(hash)) {
 					//Do not fail for credits linking, only error log
 					LogPrintf("Credits_ProcessByLinkedBitcoinBlock() : ERROR: Processing of orphan block FAILED!\nBlock hash is %s\n", hash.GetHex());
+				} else {
+			        LogPrintf("Removed orphaned for previous block %s\n", hash.GetHex());
 				}
 			}
 		}
@@ -4161,7 +4163,7 @@ bool static Bitcredit_ProcessMessage(CMessageHeader& hdr, CNode* pfrom, string s
         if (!pfrom->fInbound)
         {
             // Advertise our address
-            if (netParams->fListen && !Bitcredit_IsInitialBlockDownload() && !Bitcoin_IsInitialBlockDownload())
+            if (netParams->fListen && !Bitcredit_IsInitialBlockDownload())
             {
                 CAddress addr = GetLocalAddress(&pfrom->addr, netParams);
                 if (addr.IsRoutable())
@@ -4302,7 +4304,7 @@ bool static Bitcredit_ProcessMessage(CMessageHeader& hdr, CNode* pfrom, string s
             LogPrint(netParams->DebugCategory(), "Credits:   got inventory: %s  %s\n", inv.ToString(), fAlreadyHave ? "have" : "new");
 
             if (!fAlreadyHave) {
-                if (!credits_mainState.ImportingOrReindexing()  && !Bitcoin_IsInitialBlockDownload()) {
+                if (!credits_mainState.ImportingOrReindexing()) {
                     if (inv.type == MSG_BLOCK)
                         Bitcredit_AddBlockToQueue(pfrom->GetId(), inv.hash);
                     else
@@ -4502,7 +4504,7 @@ bool static Bitcredit_ProcessMessage(CMessageHeader& hdr, CNode* pfrom, string s
     }
 
 
-    else if (strCommand == "block" && !credits_mainState.ImportingOrReindexing()  && !Bitcoin_IsInitialBlockDownload()) // Ignore blocks received while importing
+    else if (strCommand == "block" && !credits_mainState.ImportingOrReindexing()) // Ignore blocks received while importing
     {
         Credits_CBlock block;
         vRecv >> block;
@@ -4923,7 +4925,7 @@ bool Bitcredit_SendMessages(CNode* pto, bool fSendTrickle)
 
         // Address refresh broadcast
         static int64_t nLastRebroadcast;
-        if (!Bitcoin_IsInitialBlockDownload() && !Bitcredit_IsInitialBlockDownload() && (GetTime() - nLastRebroadcast > 24 * 60 * 60))
+        if (!Bitcredit_IsInitialBlockDownload() && (GetTime() - nLastRebroadcast > 24 * 60 * 60))
         {
             {
                 LOCK(netParams->cs_vNodes);
@@ -4987,7 +4989,7 @@ bool Bitcredit_SendMessages(CNode* pto, bool fSendTrickle)
         state.rejects.clear();
 
         // Start block sync
-        if (pto->fStartSync && !credits_mainState.ImportingOrReindexing() && !Bitcoin_IsInitialBlockDownload()) {
+        if (pto->fStartSync && !credits_mainState.ImportingOrReindexing()) {
             pto->fStartSync = false;
             Bitcredit_PushGetBlocks(pto, (Credits_CBlockIndex*)credits_chainActive.Tip(), uint256(0));
         }
@@ -4995,7 +4997,7 @@ bool Bitcredit_SendMessages(CNode* pto, bool fSendTrickle)
         // Resend wallet transactions that haven't gotten in a block yet
         // Except during reindex, importing and IBD, when old wallet
         // transactions become unconfirmed and spams other nodes.
-        if (!credits_mainState.ImportingOrReindexing() && !Bitcredit_IsInitialBlockDownload() && !Bitcoin_IsInitialBlockDownload())
+        if (!credits_mainState.ImportingOrReindexing() && !Bitcredit_IsInitialBlockDownload())
         {
             bitcredit_g_signals.Broadcast();
         }
