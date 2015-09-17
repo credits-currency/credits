@@ -1165,28 +1165,32 @@ bool Credits_WriteOrphanToDisk(Credits_CBlock& pblock, CNode* pfrom) {
 	const std::string hashHex = hash.GetHex();
 	const std::string lastTwo = hashHex.substr(hashHex.size() - 2);
 
-    //Open block file (and create if necessary)
-	FILE* blockFile = OpenTmpDiskFile("credits_orphans", lastTwo.c_str(), hashHex.c_str(), false);
-    if (!blockFile)
-        return error("Credits_WriteOrphanToDisk : OpenBlockFile failed");
+	try {
+		//Open block file (and create if necessary)
+		FILE* blockFile = OpenTmpDiskFile("credits_orphans", lastTwo.c_str(), hashHex.c_str(), false);
+		if (!blockFile)
+			return error("Credits_WriteOrphanToDisk : OpenBlockFile failed");
 
-    // Open history file to append
-    CAutoFile fileout = CAutoFile(blockFile, SER_DISK, pfrom->GetNetParams()->ClientVersion());
-    if (!fileout)
-        return error("Bitcoin: Bitcoin_CBlockCompressed::WriteToDisk : OpenFile failed");
+		// Open history file to append
+		CAutoFile fileout = CAutoFile(blockFile, SER_DISK, pfrom->GetNetParams()->ClientVersion());
+		if (!fileout)
+			return error("Bitcoin: Bitcoin_CBlockCompressed::WriteToDisk : OpenFile failed");
 
-    //Write hashes of interest
-    fileout << hash;
-    fileout << pblock.hashPrevBlock;
-    fileout << pblock.hashLinkedBitcoinBlock;
+		//Write hashes of interest
+		fileout << hash;
+		fileout << pblock.hashPrevBlock;
+		fileout << pblock.hashLinkedBitcoinBlock;
 
-	// write block
-    fileout << pblock;
+		// write block
+		fileout << pblock;
 
-    // Flush stdio buffers and commit to disk before returning
-    fflush(fileout);
-    FileCommit(fileout);
-
+		// Flush stdio buffers and commit to disk before returning
+		fflush(fileout);
+		FileCommit(fileout);
+	}
+	catch (std::exception &e) {
+		return error("Credits_WriteOrphanToDisk: %s : Deserialize or I/O error - %s", __func__, e.what());
+	}
     return true;
 }
 
@@ -1196,12 +1200,12 @@ bool Credits_ReadOrphanFromDisk(const uint256 &hash, Credits_CBlock& block) {
 
     block.SetNull();
 
-    // Open history file to read
-    CAutoFile filein = CAutoFile(OpenTmpDiskFile("credits_orphans", lastTwo.c_str(), hashHex.c_str(), true), SER_DISK, CREDITS_CLIENT_VERSION);
-    if (!filein)
-        return error("Credits: Credits_ReadOrphanFromDisk : OpenBlockFile failed");
-
     try {
+		// Open history file to read
+		CAutoFile filein = CAutoFile(OpenTmpDiskFile("credits_orphans", lastTwo.c_str(), hashHex.c_str(), true), SER_DISK, CREDITS_CLIENT_VERSION);
+		if (!filein)
+			return error("Credits: Credits_ReadOrphanFromDisk : OpenBlockFile failed");
+
 		//Read hashes of interest
 		uint256 tmpHash;
 		filein >> tmpHash; // hash
@@ -3278,9 +3282,9 @@ bool Credits_ProcessOrphans(const uint256 &hashInit)
 					ss >> block;
             	} else {
 					if(!Credits_ReadOrphanFromDisk(mi->second->hashBlock, block)) {
+						return error("Credits: ProcessBlock() : Read orphaned block from disk FAILED!");
 						//Delete all gathered orphans as a cleanup measure
 				        credits_orphanIndex.DeletePrevPartial(hashPrev, deleteOrphans);
-						return error("Credits: ProcessBlock() : Read orphaned block from disk FAILED!");
 					}
             	}
             }
@@ -4487,7 +4491,7 @@ bool static Bitcredit_ProcessMessage(CMessageHeader& hdr, CNode* pfrom, string s
     }
 
 
-    else if (strCommand == "block" && !credits_mainState.ImportingOrReindexing()  && !Bitcoin_IsInitialBlockDownload()) // Ignore blocks received while importing
+    else if (strCommand == "block" && !credits_mainState.ImportingOrReindexing()) // Ignore blocks received while importing
     {
         Credits_CBlock block;
         vRecv >> block;

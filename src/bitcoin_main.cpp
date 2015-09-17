@@ -1101,26 +1101,31 @@ bool Bitcoin_WriteOrphanToDisk(Bitcoin_CBlock& pblock, CNode* pfrom) {
 	const std::string hashHex = hash.GetHex();
 	const std::string lastTwo = hashHex.substr(hashHex.size() - 2);
 
-    //Open block file (and create if necessary)
-	FILE* blockFile = OpenTmpDiskFile("bitcoin_orphans", lastTwo.c_str(), hashHex.c_str(), false);
-    if (!blockFile)
-        return error("Bitcoin_WriteOrphanToDisk : OpenBlockFile failed");
+	try {
+		//Open block file (and create if necessary)
+		FILE* blockFile = OpenTmpDiskFile("bitcoin_orphans", lastTwo.c_str(), hashHex.c_str(), false);
+		if (!blockFile)
+			return error("Bitcoin_WriteOrphanToDisk : OpenBlockFile failed");
 
-    // Open history file to append
-    CAutoFile fileout = CAutoFile(blockFile, SER_DISK, pfrom->GetNetParams()->ClientVersion());
-    if (!fileout)
-        return error("Bitcoin: Bitcoin_CBlockCompressed::WriteToDisk : OpenFile failed");
+		// Open history file to append
+		CAutoFile fileout = CAutoFile(blockFile, SER_DISK, pfrom->GetNetParams()->ClientVersion());
+		if (!fileout)
+			return error("Bitcoin: Bitcoin_CBlockCompressed::WriteToDisk : OpenFile failed");
 
-    //Write hashes of interest
-    fileout << hash;
-    fileout << pblock.hashPrevBlock;
+		//Write hashes of interest
+		fileout << hash;
+		fileout << pblock.hashPrevBlock;
 
-	// write block
-    fileout << pblock;
+		// write block
+		fileout << pblock;
 
-    // Flush stdio buffers and commit to disk before returning
-    fflush(fileout);
-    FileCommit(fileout);
+		// Flush stdio buffers and commit to disk before returning
+		fflush(fileout);
+		FileCommit(fileout);
+	}
+	catch (std::exception &e) {
+		return error("Bitcoin_WriteOrphanToDisk: %s : Deserialize or I/O error - %s", __func__, e.what());
+	}
 
     return true;
 }
@@ -1131,12 +1136,12 @@ bool Bitcoin_ReadOrphanFromDisk(const uint256 &hash, Bitcoin_CBlock& block) {
 
     block.SetNull();
 
-    // Open history file to read
-    CAutoFile filein = CAutoFile(OpenTmpDiskFile("bitcoin_orphans", lastTwo.c_str(), hashHex.c_str(), true), SER_DISK, Bitcoin_Params().ClientVersion());
-    if (!filein)
-        return error("Bitcoin: Bitcoin_ReadOrphanFromDisk : OpenBlockFile failed");
-
     try {
+		// Open history file to read
+		CAutoFile filein = CAutoFile(OpenTmpDiskFile("bitcoin_orphans", lastTwo.c_str(), hashHex.c_str(), true), SER_DISK, Bitcoin_Params().ClientVersion());
+		if (!filein)
+			return error("Bitcoin: Bitcoin_ReadOrphanFromDisk : OpenBlockFile failed");
+
 		//Read hashes of interest
 		uint256 tmpHash;
 		filein >> tmpHash; // hash
