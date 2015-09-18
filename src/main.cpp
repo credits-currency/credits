@@ -3282,12 +3282,13 @@ bool Credits_ProcessOrphans(const uint256 &hashInit)
 					ss >> block;
             	} else {
 					if(!Credits_ReadOrphanFromDisk(mi->second->hashBlock, block)) {
+						LogPrintf("Credits_ProcessOrphans() : Read orphaned block from disk FAILED for %s!\n", mi->second->hashBlock.GetHex());
+
 						credits_orphanIndex.RemoveOrpan(mi->second);
 						//Gather all connected orphans for later deletion
 						deleteOrphans.push_back(mi->second);
 						delete mi->second;
 
-						LogPrintf("Credits_ProcessOrphans() : Read orphaned block from disk FAILED!");
 						continue;
 					}
             	}
@@ -3400,7 +3401,7 @@ bool Bitcredit_ProcessBlock(CValidationState &state, CNode* pfrom, Credits_CBloc
 						credits_orphanIndex.nStoredInMemory++;
 					} else {
 						if(!Credits_WriteOrphanToDisk(*pblock, pfrom)) {
-							return error("Credits: ProcessBlock() : FAILED to write orphan to disk");
+							return error(strprintf("Credits: ProcessBlock() : FAILED to write orphan %s to disk", pblock->GetHash().GetHex()));
 						}
 						pblock2->fStoredInMemory = false;
 					}

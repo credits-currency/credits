@@ -3798,7 +3798,7 @@ bool Bitcoin_ProcessBlock(CValidationState &state, CNode* pfrom, Bitcoin_CBlock*
 					bitcoin_orphanIndex.nStoredInMemory++;
             	} else {
 					if(!Bitcoin_WriteOrphanToDisk(*pblock, pfrom)) {
-						return error("Bitcoin: ProcessBlock() : FAILED to write orphan to disk");
+						return error(strprintf("Bitcoin: ProcessBlock() : FAILED to write orphan %s to disk", pblock->GetHash().GetHex()));
 					}
 					pblock2->fStoredInMemory = false;
             	}
@@ -3840,12 +3840,13 @@ bool Bitcoin_ProcessBlock(CValidationState &state, CNode* pfrom, Bitcoin_CBlock*
 					ss >> block;
             	} else {
 					if(!Bitcoin_ReadOrphanFromDisk(mi->second->hashBlock, block)) {
+						LogPrintf("Bitcoin_ProcessBlock() : Read orphaned block from disk FAILED for %s!\n", mi->second->hashBlock.GetHex());
+
 						bitcoin_orphanIndex.RemoveOrpan(mi->second);
 						//Gather all connected orphans for later deletion
 						deleteOrphans.push_back(mi->second);
 						delete mi->second;
 
-						LogPrintf("Bitcoin_ProcessBlock() : Read orphaned block from disk FAILED!");
 						continue;
 					}
             	}
