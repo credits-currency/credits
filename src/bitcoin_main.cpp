@@ -3824,11 +3824,11 @@ bool Bitcoin_ProcessBlock(CValidationState &state, CNode* pfrom, Bitcoin_CBlock*
 
     // Recursively process any orphan blocks that depended on this one
     vector<uint256> vWorkQueue;
-    std::vector <COrphanBlock*>deleteOrphans;
     vWorkQueue.push_back(hash);
     for (unsigned int i = 0; i < vWorkQueue.size(); i++)
     {
         uint256 hashPrev = vWorkQueue[i];
+        std::vector <COrphanBlock*>deleteOrphans;
         for (multimap<uint256, COrphanBlock*>::iterator mi = bitcoin_orphanIndex.mapOrphanBlocksByPrev.lower_bound(hashPrev);
              mi != bitcoin_orphanIndex.mapOrphanBlocksByPrev.upper_bound(hashPrev);
              ++mi)
