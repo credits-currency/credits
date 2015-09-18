@@ -3282,9 +3282,9 @@ bool Credits_ProcessOrphans(const uint256 &hashInit)
 					ss >> block;
             	} else {
 					if(!Credits_ReadOrphanFromDisk(mi->second->hashBlock, block)) {
-						return error("Credits: ProcessBlock() : Read orphaned block from disk FAILED!");
 						//Delete all gathered orphans as a cleanup measure
 				        credits_orphanIndex.DeletePrevPartial(hashPrev, deleteOrphans);
+						return error("Credits: ProcessBlock() : Read orphaned block from disk FAILED!");
 					}
             	}
             }
