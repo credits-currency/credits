@@ -3843,6 +3843,7 @@ bool Bitcoin_ProcessBlock(CValidationState &state, CNode* pfrom, Bitcoin_CBlock*
 						bitcoin_orphanIndex.RemoveOrpan(mi->second);
 						//Gather all connected orphans for later deletion
 						deleteOrphans.push_back(mi->second);
+						delete mi->second;
 
 						LogPrintf("Bitcoin_ProcessBlock() : Read orphaned block from disk FAILED!");
 						continue;
@@ -3859,6 +3860,7 @@ bool Bitcoin_ProcessBlock(CValidationState &state, CNode* pfrom, Bitcoin_CBlock*
 			bitcoin_orphanIndex.RemoveOrpan(mi->second);
 			//Gather all connected orphans for later deletion
 			deleteOrphans.push_back(mi->second);
+			delete mi->second;
         }
         bitcoin_orphanIndex.DeletePrevPartial(hashPrev, deleteOrphans);
     }

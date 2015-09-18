@@ -3285,6 +3285,7 @@ bool Credits_ProcessOrphans(const uint256 &hashInit)
 						credits_orphanIndex.RemoveOrpan(mi->second);
 						//Gather all connected orphans for later deletion
 						deleteOrphans.push_back(mi->second);
+						delete mi->second;
 
 						LogPrintf("Credits_ProcessOrphans() : Read orphaned block from disk FAILED!");
 						continue;
@@ -3305,6 +3306,7 @@ bool Credits_ProcessOrphans(const uint256 &hashInit)
 				credits_orphanIndex.RemoveOrpan(mi->second);
 				//Gather all connected orphans for later deletion
 				deleteOrphans.push_back(mi->second);
+				delete mi->second;
             }
         }
 
