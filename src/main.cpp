@@ -3343,6 +3343,7 @@ void Credits_ProcessBitcoinLinkedOprhans(vector<Bitcoin_CBlockIndex*> &linkedBit
 			}
 		}
 	}
+    LogPrintf("Credits: ProcessBitcoinLinkedOprhans: Processed\n");
 }
 
 bool Bitcredit_ProcessBlock(CValidationState &state, CNode* pfrom, Credits_CBlock* pblock, CDiskBlockPos *dbp)
