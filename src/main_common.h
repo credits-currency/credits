@@ -145,10 +145,10 @@ public:
     	for(unsigned int i = 0; i < deleteOrphans.size(); i++) {
     		COrphanBlock * orphan = deleteOrphans[i];
 
-			std::pair<multiIter, multiIter> inneriterpair = mapOrphanBlocksByLinkedBitcoinBlock.equal_range(hash); //
+			std::pair<multiIter, multiIter> inneriterpair = mapOrphanBlocksByPrev.equal_range(hash); //
 			for (multiIter innerit = inneriterpair.first; innerit != inneriterpair.second; ++innerit) {
 				if (innerit->second == orphan) {
-					mapOrphanBlocksByLinkedBitcoinBlock.erase(innerit);
+					mapOrphanBlocksByPrev.erase(innerit);
 					break;
 				}
 			}
