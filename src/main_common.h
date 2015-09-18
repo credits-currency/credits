@@ -140,6 +140,7 @@ public:
         } while(true);
     }
 
+    //TODO - Can this be made in a more efficient manner?
     void DeletePrevPartial(const uint256& hash, std::vector <COrphanBlock*> &deleteOrphans) {
     	if(deleteOrphans.size() > 0) {
 			typedef multimap<uint256, COrphanBlock*>::iterator multiIter;

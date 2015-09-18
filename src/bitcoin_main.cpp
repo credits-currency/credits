@@ -3824,6 +3824,7 @@ bool Bitcoin_ProcessBlock(CValidationState &state, CNode* pfrom, Bitcoin_CBlock*
 
     // Recursively process any orphan blocks that depended on this one
     vector<uint256> vWorkQueue;
+    std::vector <COrphanBlock*>deleteOrphans;
     vWorkQueue.push_back(hash);
     for (unsigned int i = 0; i < vWorkQueue.size(); i++)
     {
@@ -3839,7 +3840,12 @@ bool Bitcoin_ProcessBlock(CValidationState &state, CNode* pfrom, Bitcoin_CBlock*
 					ss >> block;
             	} else {
 					if(!Bitcoin_ReadOrphanFromDisk(mi->second->hashBlock, block)) {
-						return error("Bitcoin: ProcessBlock() : Read orphaned block from disk FAILED!");
+						bitcoin_orphanIndex.RemoveOrpan(mi->second);
+						//Gather all connected orphans for later deletion
+						deleteOrphans.push_back(mi->second);
+
+						LogPrintf("Bitcoin_ProcessBlock() : Read orphaned block from disk FAILED!");
+						continue;
 					}
             	}
             }
@@ -3847,15 +3853,14 @@ bool Bitcoin_ProcessBlock(CValidationState &state, CNode* pfrom, Bitcoin_CBlock*
             // Use a dummy CValidationState so someone can't setup nodes to counter-DoS based on orphan resolution (that is, feeding people an invalid block based on LegitBlockX in order to get anyone relaying LegitBlockX banned)
             CValidationState stateDummy;
             Bitcoin_CBlockIndex *pindexChild = NULL;
-            if (Bitcoin_AcceptBlock(block, stateDummy, &pindexChild, NULL, Bitcoin_NetParams())) {
+            if (Bitcoin_AcceptBlock(block, stateDummy, &pindexChild, NULL, Bitcoin_NetParams()))
                 vWorkQueue.push_back(mi->second->hashBlock);
-                bitcoin_mapBlockIndex[block.GetHash()];
-            }
 
-            bitcoin_orphanIndex.RemoveOrpan(mi->second);
-            delete mi->second;
+			bitcoin_orphanIndex.RemoveOrpan(mi->second);
+			//Gather all connected orphans for later deletion
+			deleteOrphans.push_back(mi->second);
         }
-        bitcoin_orphanIndex.mapOrphanBlocksByPrev.erase(hashPrev);
+        bitcoin_orphanIndex.DeletePrevPartial(hashPrev, deleteOrphans);
     }
 
     LogPrintf("Bitcoin: ProcessBlock: ACCEPTED\n");
