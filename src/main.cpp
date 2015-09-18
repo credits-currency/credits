@@ -3332,7 +3332,7 @@ void Credits_ProcessBitcoinLinkedOprhans(vector<Bitcoin_CBlockIndex*> &linkedBit
 			for (multimap<uint256, COrphanBlock*>::iterator mi = credits_orphanIndex.mapOrphanBlocksByLinkedBitcoinBlock.lower_bound(hashLinkedBlock);
 				 mi != credits_orphanIndex.mapOrphanBlocksByLinkedBitcoinBlock.upper_bound(hashLinkedBlock); ++mi) {
 				const uint256 hashPrev = credits_orphanIndex.mapOrphanBlocks[credits_orphanIndex.GetOrphanRoot(mi->second->hashBlock)]->hashPrev;
-				if(credits_mapBlockIndex.count(hashPrev)) {
+				if(credits_mapBlockIndex.count(hashPrev) && hashOrphanRootPrevs.count(hashPrev) == 0) {
 					hashOrphanRootPrevs.insert(hashPrev);
 				}
 			}
