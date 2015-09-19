@@ -142,7 +142,7 @@ public:
 
     //TODO - Can this be made in a more efficient manner?
     void DeletePrevPartial(const uint256& hash, std::vector <COrphanBlock*> &deleteOrphans) {
-    	if(deleteOrphans.size() > 0) {
+    	if(deleteOrphans.size() > 0 && mapOrphanBlocksByPrev.size() > 0) {
 			typedef multimap<uint256, COrphanBlock*>::iterator multiIter;
 			for(unsigned int i = 0; i < deleteOrphans.size(); i++) {
 				const COrphanBlock * orphan = deleteOrphans[i];
