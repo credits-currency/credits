@@ -260,7 +260,7 @@ QList<Credits_TransactionRecord> Credits_TransactionRecord::decomposeTransaction
 
 void Credits_TransactionRecord::updateStatus(const Credits_CWalletTx &wtx)
 {
-    AssertLockHeld(credits_mainState.cs_main);
+    AssertLockHeld(cs_main);
     // Determine transaction status
 
     // Find the block the tx is in
@@ -395,7 +395,7 @@ void Credits_TransactionRecord::updateStatus(const Credits_CWalletTx &wtx)
 
 bool Credits_TransactionRecord::statusUpdateNeeded()
 {
-    AssertLockHeld(credits_mainState.cs_main);
+    AssertLockHeld(cs_main);
     return status.cur_num_blocks != credits_chainActive.Height();
 }
 

@@ -77,7 +77,7 @@ public:
         qDebug() << "TransactionTablePriv::refreshWallet";
         cachedWallet.clear();
         {
-            LOCK2(bitcoin_mainState.cs_main, wallet->cs_wallet);
+            LOCK2(cs_main, wallet->cs_wallet);
             for(std::map<uint256, Bitcoin_CWalletTx>::iterator it = wallet->mapWallet.begin(); it != wallet->mapWallet.end(); ++it)
             {
                 if(Bitcoin_TransactionRecord::showTransaction(it->second))
@@ -95,7 +95,7 @@ public:
     {
         qDebug() << "TransactionTablePriv::updateWallet : " + QString::fromStdString(hash.ToString()) + " " + QString::number(status);
         {
-            LOCK2(bitcoin_mainState.cs_main, wallet->cs_wallet);
+            LOCK2(cs_main, wallet->cs_wallet);
 
             // Find transaction in wallet
             std::map<uint256, Bitcoin_CWalletTx>::iterator mi = wallet->mapWallet.find(hash);
@@ -193,7 +193,7 @@ public:
             // If a status update is needed (blocks came in since last check),
             //  update the status of this transaction from the wallet. Otherwise,
             // simply re-use the cached status.
-            TRY_LOCK(bitcoin_mainState.cs_main, lockMain);
+            TRY_LOCK(cs_main, lockMain);
             if(lockMain)
             {
                 TRY_LOCK(wallet->cs_wallet, lockWallet);
@@ -218,7 +218,7 @@ public:
     QString describe(Bitcoin_TransactionRecord *rec, int unit)
     {
         {
-            LOCK2(bitcoin_mainState.cs_main, wallet->cs_wallet);
+            LOCK2(cs_main, wallet->cs_wallet);
             std::map<uint256, Bitcoin_CWalletTx>::iterator mi = wallet->mapWallet.find(rec->hash);
             if(mi != wallet->mapWallet.end())
             {

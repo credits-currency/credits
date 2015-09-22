@@ -66,7 +66,7 @@ BOOST_AUTO_TEST_CASE(rpc_wallet)
     // Test RPC calls for various wallet statistics
     Value r;
 
-    LOCK2(credits_mainState.cs_main, bitcredit_pwalletMain->cs_wallet);
+    LOCK2(cs_main, bitcredit_pwalletMain->cs_wallet);
 
     CPubKey demoPubkey = bitcredit_pwalletMain->GenerateNewKey();
 	CBitcoinAddress demoAddress = CBitcoinAddress(CTxDestination(demoPubkey.GetID()));

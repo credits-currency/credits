@@ -75,7 +75,7 @@ public:
         }
 
         // if we can, retrieve the CNodeStateStats for each node.
-        TRY_LOCK(credits_mainState.cs_main, lockMain);
+        TRY_LOCK(cs_main, lockMain);
         {
             if (lockMain)
             {

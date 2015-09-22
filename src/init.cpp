@@ -152,7 +152,7 @@ void Shutdown()
     StopNode();
     bitcredit_netParams->UnregisterNodeSignals();
     {
-        LOCK(credits_mainState.cs_main);
+        LOCK(cs_main);
 #ifdef ENABLE_WALLET
         if (bitcredit_pwalletMain)
             bitcredit_pwalletMain->SetBestChain(credits_chainActive.GetLocator());
@@ -207,7 +207,7 @@ void Shutdown()
 
     bitcoin_netParams->UnregisterNodeSignals();
     {
-        LOCK(bitcoin_mainState.cs_main);
+        LOCK(cs_main);
         if (bitcoin_pblocktree)
             bitcoin_pblocktree->Flush();
         delete bitcoin_pblocktree; bitcoin_pblocktree = NULL;

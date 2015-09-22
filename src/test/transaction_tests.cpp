@@ -293,7 +293,7 @@ BOOST_AUTO_TEST_CASE(test_Get)
 
 BOOST_AUTO_TEST_CASE(test_IsStandard)
 {
-    LOCK(credits_mainState.cs_main);
+    LOCK(cs_main);
     CBasicKeyStore keystore;
     Credits_CCoinsView coinsDummy;
     Credits_CCoinsViewCache coins(coinsDummy);

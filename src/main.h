@@ -107,6 +107,8 @@ static const unsigned char BITCREDIT_REJECT_INSUFFICIENTFEE = 0x42;
 static const unsigned char BITCREDIT_REJECT_CHECKPOINT = 0x43;
 static const unsigned char BITCREDIT_REJECT_INVALID_BITCOIN_BLOCK_LINK = 0x44;
 
+extern CCriticalSection cs_main;
+extern CCriticalSection cs_LastBlockFile;
 extern MainState credits_mainState;
 
 extern CScript BITCREDIT_COINBASE_FLAGS;

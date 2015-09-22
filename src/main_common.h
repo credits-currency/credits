@@ -457,11 +457,9 @@ protected:
 
 class MainState {
 public:
-	CCriticalSection cs_main;
 	bool fImporting;
 	bool fReindex;
 
-    CCriticalSection cs_LastBlockFile;
     CBlockFileInfo infoLastBlockFile;
     int nLastBlockFile;
     int nTrimToTime;
