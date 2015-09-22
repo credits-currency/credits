@@ -2384,7 +2384,8 @@ bool Bitcoin_ConnectBlockForClaim(Bitcoin_CBlockCompressed& block, CValidationSt
 }
 
 // Update the on-disk chain state.
-bool static Bitcoin_WriteChainState(CValidationState &state) {
+bool static Bitcoin_WriteChainState(CValidationState &state, bool &fWroteChainState) {
+	fWroteChainState = false;
     static int64_t nLastWrite = 0;
     if (!Bitcoin_IsInitialBlockDownload() || bitcoin_pcoinsTip->GetCacheSize() > bitcoin_nCoinCacheSize || GetTimeMicros() > nLastWrite + 600*1000000) {
         // Typical Bitcoin_CCoins structures on disk are around 100 bytes in size.
@@ -2399,6 +2400,7 @@ bool static Bitcoin_WriteChainState(CValidationState &state) {
         if (!bitcoin_pcoinsTip->Flush())
             return state.Abort(_("Failed to write to coin database"));
         nLastWrite = GetTimeMicros();
+        fWroteChainState = true;
     }
     return true;
 }
@@ -2466,18 +2468,17 @@ bool static Bitcoin_DisconnectTip(CValidationState &state) {
     if (bitcoin_fBenchmark)
         LogPrintf("Bitcoin: - Disconnect: %.2fms\n", (GetTimeMicros() - nStart) * 0.001);
     // Write the chain state to disk, if necessary.
-    if (!Bitcoin_WriteChainState(state))
+    bool fWroteChainState;
+    if (!Bitcoin_WriteChainState(state, fWroteChainState))
         return false;
     if(fastForwardClaimState) {
-    	//TODO - This section may be obsolete once bitcredit_mainState.cs_main where removed. Could possibly be replaced with Bitcredit_WriteChainState()
     	//Workaround to flush coins - used instead of Bitcredit_WriteChainState()
-    	//If bitcredit_mainState.cs_main is used here, we will end up in deadlock
     	//This flushing will only happen on fast forward, which can be assumed to be initial block download or reindex
-    	//Therefore, flush only when cache grows to big. This could cause corruption on power failure or similar
-    	//Question is, do flushing to *_pcoinsTip require a lock? Does not seem that way in *_WriteChainState.
-        if (credits_pcoinsTip->GetCacheSize() > bitcredit_nCoinCacheSize) {
+    	//Therefore, flush only when cache grows to big. This MIGHT cause corruption on power failure or similar
+    	//Note that it is the size of the bitcoin chainstate that decides on flushing
+        if (fWroteChainState) {
             if (!credits_pcoinsTip->Claim_Flush())
-                return state.Abort(_("Failed to write to coin database"));
+                return state.Abort(_("Failed to write to claim coin database"));
         }
     }
     // Resurrect mempool transactions from the disconnected block.
@@ -2938,18 +2939,17 @@ bool static Bitcoin_ConnectTip(CValidationState &state, Bitcoin_CBlockIndex *pin
     if (bitcoin_fBenchmark)
         LogPrintf("Bitcoin: - Connect: %.2fms\n", (GetTimeMicros() - nStart) * 0.001);
     // Write the chain state to disk, if necessary.
-    if (!Bitcoin_WriteChainState(state))
+    bool fWroteChainState;
+    if (!Bitcoin_WriteChainState(state, fWroteChainState))
         return false;
     if(fastForwardClaimState) {
-    	//TODO - This section may be obsolete once bitcredit_mainState.cs_main where removed. Could possibly be replaced with Bitcredit_WriteChainState()
     	//Workaround to flush coins - used instead of Bitcredit_WriteChainState()
-    	//If bitcredit_mainState.cs_main is used here, we will end up in deadlock
     	//This flushing will only happen on fast forward, which can be assumed to be initial block download or reindex
-    	//Therefore, flush only when cache grows to big. This could cause corruption on power failure or similar
-    	//Question is, do flushing to *_pcoinsTip require a lock? Does not seem that way in *_WriteChainState.
-        if (credits_pcoinsTip->GetCacheSize() > bitcredit_nCoinCacheSize) {
+    	//Therefore, flush only when cache grows to big. This MIGHT cause corruption on power failure or similar
+    	//Note that it is the size of the bitcoin chainstate that decides on flushing
+        if (fWroteChainState) {
             if (!credits_pcoinsTip->Claim_Flush())
-                return state.Abort(_("Failed to write to coin database"));
+                return state.Abort(_("Failed to write to claim coin database"));
         }
     }
     // Remove conflicting transactions from the mempool.
