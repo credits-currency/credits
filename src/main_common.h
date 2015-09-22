@@ -187,9 +187,7 @@ public:
         	const std::string lastTwo = hashHex.substr(hashHex.size() - 2);
 
         	boost::filesystem::path removePath = GetTmpDataDir() / orphanDir / lastTwo / hashHex;
-            if(boost::filesystem::remove(removePath)) {
-            	LogPrintf("Removed orphaned block at %s\n", removePath);
-            } else {
+            if(!boost::filesystem::remove(removePath)) {
             	LogPrintf("ERROR: Couldn't remove orphaned block at %s\n", removePath);
             }
         }

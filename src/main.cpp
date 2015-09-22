@@ -3345,13 +3345,10 @@ void Credits_ProcessBitcoinLinkedOprhans(vector<Bitcoin_CBlockIndex*> &linkedBit
 				if(!Credits_ProcessOrphans(hash)) {
 					//Do not fail for credits linking, only error log
 					LogPrintf("Credits_ProcessByLinkedBitcoinBlock() : ERROR: Processing of orphan block FAILED!\nBlock hash is %s\n", hash.GetHex());
-				} else {
-			        LogPrintf("Removed orphaned for previous block %s\n", hash.GetHex());
 				}
 			}
 		}
 	}
-    LogPrintf("Credits: ProcessBitcoinLinkedOprhans: Processed\n");
 }
 
 bool Bitcredit_ProcessBlock(CValidationState &state, CNode* pfrom, Credits_CBlock* pblock, CDiskBlockPos *dbp)
