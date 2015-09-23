@@ -79,7 +79,7 @@ public:
         qDebug() << "TransactionTablePriv::refreshWallet";
         cachedWallet.clear();
         {
-            LOCK2(credits_mainState.cs_main, credits_wallet->cs_wallet);
+            LOCK2(cs_main, credits_wallet->cs_wallet);
             for(std::map<uint256, Credits_CWalletTx>::iterator it = credits_wallet->mapWallet.begin(); it != credits_wallet->mapWallet.end(); ++it)
             {
                 if(Credits_TransactionRecord::showTransaction(it->second))
@@ -97,7 +97,7 @@ public:
     {
         qDebug() << "TransactionTablePriv::updateWallet : " + QString::fromStdString(hash.ToString()) + " " + QString::number(status);
         {
-            LOCK2(credits_mainState.cs_main, credits_wallet->cs_wallet);
+            LOCK2(cs_main, credits_wallet->cs_wallet);
 
             // Find transaction in wallet
             std::map<uint256, Credits_CWalletTx>::iterator mi = credits_wallet->mapWallet.find(hash);
@@ -195,7 +195,7 @@ public:
             // If a status update is needed (blocks came in since last check),
             //  update the status of this transaction from the wallet. Otherwise,
             // simply re-use the cached status.
-            TRY_LOCK(credits_mainState.cs_main, lockMain);
+            TRY_LOCK(cs_main, lockMain);
             if(lockMain)
             {
                 TRY_LOCK(credits_wallet->cs_wallet, lockWallet);
@@ -220,7 +220,7 @@ public:
     QString describe(Credits_TransactionRecord *rec, int unit)
     {
         {
-            LOCK2(credits_mainState.cs_main, credits_wallet->cs_wallet);
+            LOCK2(cs_main, credits_wallet->cs_wallet);
             std::map<uint256, Credits_CWalletTx>::iterator mi = credits_wallet->mapWallet.find(rec->hash);
             if(mi != credits_wallet->mapWallet.end())
             {

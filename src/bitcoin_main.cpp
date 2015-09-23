@@ -56,8 +56,7 @@ int64_t Bitcoin_CTransaction::nMinTxFee = 10000;  // Override with -mintxfee
 /** Fees smaller than this (in satoshi) are considered zero fee (for relaying and mining) */
 int64_t Bitcoin_CTransaction::nMinRelayTxFee = 1000;
 
-map<uint256, COrphanBlock*> bitcoin_mapOrphanBlocks;
-multimap<uint256, COrphanBlock*> bitcoin_mapOrphanBlocksByPrev;
+COrphanIndex bitcoin_orphanIndex("bitcoin_orphans");
 
 map<uint256, Bitcoin_CTransaction> bitcoin_mapOrphanTransactions;
 map<uint256, set<uint256> > bitcoin_mapOrphanTransactionsByPrev;
@@ -183,18 +182,18 @@ CNodeState *Bitcoin_State(NodeId pnode) {
 
 int Bitcoin_GetHeight()
 {
-    LOCK(bitcoin_mainState.cs_main);
+    LOCK(cs_main);
     return bitcoin_chainActive.Height();
 }
 
 void Bitcoin_InitializeNode(NodeId nodeid, const CNode *pnode) {
-    LOCK(bitcoin_mainState.cs_main);
+    LOCK(cs_main);
     CNodeState &state = bitcoin_mapNodeState.insert(std::make_pair(nodeid, CNodeState())).first->second;
     state.name = pnode->addrName;
 }
 
 void Bitcoin_FinalizeNode(NodeId nodeid) {
-    LOCK(bitcoin_mainState.cs_main);
+    LOCK(cs_main);
     CNodeState *state = Bitcoin_State(nodeid);
 
     BOOST_FOREACH(const QueuedBlock& entry, state->vBlocksInFlight)
@@ -263,7 +262,7 @@ void Bitcoin_MarkBlockAsInFlight(NodeId nodeid, const uint256 &hash) {
 }
 
 bool Bitcoin_GetNodeStateStats(NodeId nodeid, CNodeStateStats &stats) {
-    LOCK(bitcoin_mainState.cs_main);
+    LOCK(cs_main);
     CNodeState *state = Bitcoin_State(nodeid);
     if (state == NULL)
         return false;
@@ -423,7 +422,7 @@ unsigned int Bitcoin_LimitOrphanTxSize(unsigned int nMaxOrphans)
 
 bool Bitcoin_IsStandardTx(const Bitcoin_CTransaction& tx, string& reason)
 {
-    AssertLockHeld(bitcoin_mainState.cs_main);
+    AssertLockHeld(cs_main);
     if (tx.nVersion > Bitcoin_CTransaction::CURRENT_VERSION || tx.nVersion < 1) {
         reason = "version";
         return false;
@@ -510,7 +509,7 @@ bool Bitcoin_IsStandardTx(const Bitcoin_CTransaction& tx, string& reason)
 
 bool Bitcoin_IsFinalTx(const Bitcoin_CTransaction &tx, int nBlockHeight, int64_t nBlockTime)
 {
-    AssertLockHeld(bitcoin_mainState.cs_main);
+    AssertLockHeld(cs_main);
     // Time based nLockTime implemented in 0.1.6
     if (tx.nLockTime == 0)
         return true;
@@ -622,7 +621,7 @@ unsigned int Bitcoin_GetP2SHSigOpCount(const Bitcoin_CTransaction& tx, Bitcoin_C
 
 int Bitcoin_CMerkleTx::SetMerkleBranch(const Bitcoin_CBlock* pblock)
 {
-    AssertLockHeld(bitcoin_mainState.cs_main);
+    AssertLockHeld(cs_main);
     Bitcoin_CBlock blockTmp;
 
     if (pblock == NULL) {
@@ -769,7 +768,7 @@ int64_t Bitcoin_GetMinFee(const Bitcoin_CTransaction& tx, unsigned int nBytes, b
 bool Bitcoin_AcceptToMemoryPool(Bitcoin_CTxMemPool& pool, CValidationState &state, const Bitcoin_CTransaction &tx, bool fLimitFree,
                         bool* pfMissingInputs, bool fRejectInsaneFee)
 {
-    AssertLockHeld(bitcoin_mainState.cs_main);
+    AssertLockHeld(cs_main);
     if (pfMissingInputs)
         *pfMissingInputs = false;
 
@@ -915,7 +914,7 @@ int Bitcoin_CMerkleTx::GetDepthInMainChainINTERNAL(Bitcoin_CBlockIndex* &pindexR
 {
     if (hashBlock == 0 || nIndex == -1)
         return 0;
-    AssertLockHeld(bitcoin_mainState.cs_main);
+    AssertLockHeld(cs_main);
 
     // Find the block it claims to be in
     map<uint256, Bitcoin_CBlockIndex*>::iterator mi = bitcoin_mapBlockIndex.find(hashBlock);
@@ -939,7 +938,7 @@ int Bitcoin_CMerkleTx::GetDepthInMainChainINTERNAL(Bitcoin_CBlockIndex* &pindexR
 
 int Bitcoin_CMerkleTx::GetDepthInMainChain(Bitcoin_CBlockIndex* &pindexRet) const
 {
-    AssertLockHeld(bitcoin_mainState.cs_main);
+    AssertLockHeld(cs_main);
     int nResult = GetDepthInMainChainINTERNAL(pindexRet);
     if (nResult == 0 && !bitcoin_mempool.exists(GetHash()))
         return -1; // Not in chain, not in mempool
@@ -967,7 +966,7 @@ bool Bitcoin_GetTransaction(const uint256 &hash, Bitcoin_CTransaction &txOut, ui
 {
     Bitcoin_CBlockIndex *pindexSlow = NULL;
     {
-        LOCK(bitcoin_mainState.cs_main);
+        LOCK(cs_main);
         {
             if (bitcoin_mempool.lookup(hash, txOut))
             {
@@ -1097,44 +1096,119 @@ bool Bitcoin_ReadBlockFromDisk(Bitcoin_CBlock& block, const Bitcoin_CBlockIndex*
     return true;
 }
 
-uint256 static Bitcoin_GetOrphanRoot(const uint256& hash)
-{
-    map<uint256, COrphanBlock*>::iterator it = bitcoin_mapOrphanBlocks.find(hash);
-    if (it == bitcoin_mapOrphanBlocks.end())
-        return hash;
+bool Bitcoin_WriteOrphanToDisk(Bitcoin_CBlock& pblock, CNode* pfrom) {
+	const uint256 hash = pblock.GetHash();
+	const std::string hashHex = hash.GetHex();
+	const std::string lastTwo = hashHex.substr(hashHex.size() - 2);
 
-    // Work back to the first block in the orphan chain
-    do {
-        map<uint256, COrphanBlock*>::iterator it2 = bitcoin_mapOrphanBlocks.find(it->second->hashPrev);
-        if (it2 == bitcoin_mapOrphanBlocks.end())
-            return it->first;
-        it = it2;
-    } while(true);
+	try {
+		//Open block file (and create if necessary)
+		FILE* blockFile = OpenTmpDiskFile("bitcoin_orphans", lastTwo.c_str(), hashHex.c_str(), false);
+		if (!blockFile)
+			return error("Bitcoin_WriteOrphanToDisk : OpenBlockFile failed");
+
+		// Open history file to append
+		CAutoFile fileout = CAutoFile(blockFile, SER_DISK, pfrom->GetNetParams()->ClientVersion());
+		if (!fileout)
+			return error("Bitcoin: Bitcoin_CBlockCompressed::WriteToDisk : OpenFile failed");
+
+		//Write hashes of interest
+		fileout << hash;
+		fileout << pblock.hashPrevBlock;
+
+		// write block
+		fileout << pblock;
+
+		// Flush stdio buffers and commit to disk before returning
+		fflush(fileout);
+		FileCommit(fileout);
+	}
+	catch (std::exception &e) {
+		return error("Bitcoin_WriteOrphanToDisk: %s : Deserialize or I/O error - %s", __func__, e.what());
+	}
+
+    return true;
 }
 
-// Remove a random orphan block (which does not have any dependent orphans).
-void static Bitcoin_PruneOrphanBlocks()
-{
-    if (bitcoin_mapOrphanBlocksByPrev.size() <= (size_t)std::max((int64_t)0, GetArg("-bitcoin_maxorphanblocks", BITCOIN_DEFAULT_MAX_ORPHAN_BLOCKS)))
-        return;
+bool Bitcoin_ReadOrphanFromDisk(const uint256 &hash, Bitcoin_CBlock& block) {
+	const std::string hashHex = hash.GetHex();
+	const std::string lastTwo = hashHex.substr(hashHex.size() - 2);
 
-    // Pick a random orphan block.
-    int pos = insecure_rand() % bitcoin_mapOrphanBlocksByPrev.size();
-    std::multimap<uint256, COrphanBlock*>::iterator it = bitcoin_mapOrphanBlocksByPrev.begin();
-    while (pos--) it++;
+    block.SetNull();
 
-    // As long as this block has other orphans depending on it, move to one of those successors.
-    do {
-        std::multimap<uint256, COrphanBlock*>::iterator it2 = bitcoin_mapOrphanBlocksByPrev.find(it->second->hashBlock);
-        if (it2 == bitcoin_mapOrphanBlocksByPrev.end())
-            break;
-        it = it2;
-    } while(1);
+    try {
+		// Open history file to read
+		CAutoFile filein = CAutoFile(OpenTmpDiskFile("bitcoin_orphans", lastTwo.c_str(), hashHex.c_str(), true), SER_DISK, Bitcoin_Params().ClientVersion());
+		if (!filein)
+			return error("Bitcoin: Bitcoin_ReadOrphanFromDisk : OpenBlockFile failed");
 
-    uint256 hash = it->second->hashBlock;
-    delete it->second;
-    bitcoin_mapOrphanBlocksByPrev.erase(it);
-    bitcoin_mapOrphanBlocks.erase(hash);
+		//Read hashes of interest
+		uint256 tmpHash;
+		filein >> tmpHash; // hash
+		uint256 tmpPrevHash;
+		filein >> tmpPrevHash; //pblock->hashPrevBlock;
+
+		// Read block
+        filein >> block;
+    }
+    catch (std::exception &e) {
+        return error("Bitcoin_ReadOrphanFromDisk: %s : Deserialize or I/O error - %s", __func__, e.what());
+    }
+
+    // Check the header
+    if (!Bitcoin_CheckProofOfWork(block.GetHash(), block.nBits))
+        return error("Bitcoin: Bitcoin_ReadOrphanFromDisk : Errors in block header");
+
+    return true;
+}
+
+bool Bitcoin_IndexOrphansFromDisk() {
+    const int64_t nStart = GetTimeMillis();
+
+    bitcoin_orphanIndex.SetNull();
+
+    unsigned int nOrphansLoaded = 0;
+	//Load index for all orphans
+	const boost::filesystem::path dirPath = GetTmpDataDir() / "bitcoin_orphans";
+	boost::filesystem::directory_iterator it(dirPath), eod;
+	BOOST_FOREACH(const boost::filesystem::path& subDirPath, std::make_pair(it, eod)) {
+	    if(boost::filesystem::is_directory(subDirPath)) {
+	    	boost::filesystem::directory_iterator it2(subDirPath), eod2;
+        	BOOST_FOREACH(const boost::filesystem::path& orphanedFilePath, std::make_pair(it2, eod2)) {
+        	    if(boost::filesystem::is_regular_file(orphanedFilePath)) {
+        	        // Open orphan file to read
+        	        CAutoFile filein = CAutoFile(fopen(orphanedFilePath.string().c_str(), "rb+"), SER_DISK, Bitcoin_Params().ClientVersion());
+        	        if (!filein)
+        	            return error("Bitcoin_IndexOrphansFromDisk : OpenBlockFile failed");
+
+        	        try {
+        	    		//Read hashes of interest
+        	    		uint256 hash;
+        	    		filein >> hash;
+        	    		uint256 hashPrevBlock;
+        	    		filein >> hashPrevBlock;
+
+        	            COrphanBlock* pblock2 = new COrphanBlock();
+        	            pblock2->hashBlock = hash;
+        	            pblock2->hashPrev = hashPrevBlock;
+        	            pblock2->fStoredInMemory = false;
+
+        	            bitcoin_orphanIndex.mapOrphanBlocks.insert(make_pair(hash, pblock2));
+        	            bitcoin_orphanIndex.mapOrphanBlocksByPrev.insert(make_pair(pblock2->hashPrev, pblock2));
+
+        	            nOrphansLoaded++;
+        	        }
+        	        catch (std::exception &e) {
+        	            return error("Bitcoin_IndexOrphansFromDisk: %s : Deserialize or I/O error - %s", __func__, e.what());
+        	        }
+        	    }
+        	}
+	    }
+	}
+
+    LogPrintf("%d orphaned Bitcoin blocks loaded from disk in %15dms\n", nOrphansLoaded, GetTimeMillis() - nStart);
+
+	return true;
 }
 
 int64_t Bitcoin_GetBlockValue(int nHeight, int64_t nFees)
@@ -1281,7 +1355,7 @@ bool Bitcoin_CheckProofOfWork(uint256 hash, unsigned int nBits)
 
 bool Bitcoin_IsInitialBlockDownload()
 {
-    LOCK(bitcoin_mainState.cs_main);
+    LOCK(cs_main);
     if (bitcoin_mainState.ImportingOrReindexing() || bitcoin_chainActive.Height() < Checkpoints::Bitcoin_GetTotalBlocksEstimate())
         return true;
     static int64_t nLastUpdate;
@@ -1301,7 +1375,7 @@ Bitcoin_CBlockIndex *bitcoin_pindexBestForkTip = NULL, *bitcoin_pindexBestForkBa
 
 void Bitcoin_CheckForkWarningConditions()
 {
-    AssertLockHeld(bitcoin_mainState.cs_main);
+    AssertLockHeld(cs_main);
     // Before we get past initial download, we cannot reliably alert about forks
     // (we assume we don't get stuck on a fork before the last checkpoint)
     if (Bitcoin_IsInitialBlockDownload())
@@ -1347,7 +1421,7 @@ void Bitcoin_CheckForkWarningConditions()
 
 void Bitcoin_CheckForkWarningConditionsOnNewFork(Bitcoin_CBlockIndex* pindexNewForkTip)
 {
-    AssertLockHeld(bitcoin_mainState.cs_main);
+    AssertLockHeld(cs_main);
     // If we are on a fork that is sufficiently large, set a warning flag
     Bitcoin_CBlockIndex* pfork = pindexNewForkTip;
     Bitcoin_CBlockIndex* plonger = (Bitcoin_CBlockIndex*)bitcoin_chainActive.Tip();
@@ -1919,7 +1993,7 @@ bool Bitcoin_DisconnectBlockForClaim(Bitcoin_CBlockCompressed& block, CValidatio
 
 void static Bitcoin_FlushBlockFile(bool fFinalize = false)
 {
-    LOCK(bitcoin_mainState.cs_LastBlockFile);
+    LOCK(cs_LastBlockFile);
 
     CDiskBlockPos posOld(bitcoin_mainState.nLastBlockFile, 0);
 
@@ -2006,7 +2080,7 @@ bool Bitcoin_WriteBlockUndoClaimToDisk(CValidationState& state, Bitcoin_CBlockIn
 
 bool Bitcoin_ConnectBlock(Bitcoin_CBlock& block, CValidationState& state, Bitcoin_CBlockIndex* pindex, Bitcoin_CCoinsViewCache& view, Credits_CCoinsViewCache& claim_view, bool updateUndo, bool fJustCheck)
 {
-    AssertLockHeld(bitcoin_mainState.cs_main);
+    AssertLockHeld(cs_main);
     // Check it again in case a previous version let a bad block in
     if (!Bitcoin_CheckBlock(block, state, !fJustCheck, !fJustCheck))
         return false;
@@ -2249,7 +2323,7 @@ bool Bitcoin_WriteBlockUndoClaimsToDisk(CValidationState& state, std::vector<pai
  */
 bool Bitcoin_ConnectBlockForClaim(Bitcoin_CBlockCompressed& block, CValidationState& state, Bitcoin_CBlockIndex* pindex, Credits_CCoinsViewCache& view, bool updateUndo, std::vector<pair<Bitcoin_CBlockIndex*, Bitcoin_CBlockUndoClaim> > &vBlockUndoClaims)
 {
-    AssertLockHeld(bitcoin_mainState.cs_main);
+    AssertLockHeld(cs_main);
 
     // verify that the view's current state corresponds to the previous block
     uint256 hashPrevBlock = pindex->pprev == NULL ? uint256(0) : pindex->pprev->GetBlockHash();
@@ -2310,7 +2384,8 @@ bool Bitcoin_ConnectBlockForClaim(Bitcoin_CBlockCompressed& block, CValidationSt
 }
 
 // Update the on-disk chain state.
-bool static Bitcoin_WriteChainState(CValidationState &state) {
+bool static Bitcoin_WriteChainState(CValidationState &state, bool &fWroteChainState) {
+	fWroteChainState = false;
     static int64_t nLastWrite = 0;
     if (!Bitcoin_IsInitialBlockDownload() || bitcoin_pcoinsTip->GetCacheSize() > bitcoin_nCoinCacheSize || GetTimeMicros() > nLastWrite + 600*1000000) {
         // Typical Bitcoin_CCoins structures on disk are around 100 bytes in size.
@@ -2318,13 +2393,14 @@ bool static Bitcoin_WriteChainState(CValidationState &state) {
         // twice (once in the log, and once in the tables). This is already
         // an overestimation, as most will delete an existing entry or
         // overwrite one. Still, use a conservative safety factor of 2.
-        if (!Bitcoin_CheckDiskSpace(100 * 2 * 2 * bitcoin_pcoinsTip->GetCacheSize()))
+        if (!CheckDiskSpace(100 * 2 * 2 * bitcoin_pcoinsTip->GetCacheSize()))
             return state.Error("out of disk space");
         Bitcoin_FlushBlockFile();
         bitcoin_pblocktree->Sync();
         if (!bitcoin_pcoinsTip->Flush())
             return state.Abort(_("Failed to write to coin database"));
         nLastWrite = GetTimeMicros();
+        fWroteChainState = true;
     }
     return true;
 }
@@ -2392,17 +2468,17 @@ bool static Bitcoin_DisconnectTip(CValidationState &state) {
     if (bitcoin_fBenchmark)
         LogPrintf("Bitcoin: - Disconnect: %.2fms\n", (GetTimeMicros() - nStart) * 0.001);
     // Write the chain state to disk, if necessary.
-    if (!Bitcoin_WriteChainState(state))
+    bool fWroteChainState;
+    if (!Bitcoin_WriteChainState(state, fWroteChainState))
         return false;
     if(fastForwardClaimState) {
     	//Workaround to flush coins - used instead of Bitcredit_WriteChainState()
-    	//If bitcredit_mainState.cs_main is used here, we will end up in deadlock
     	//This flushing will only happen on fast forward, which can be assumed to be initial block download or reindex
-    	//Therefore, flush only when cache grows to big. This could cause corruption on power failure or similar
-    	//Question is, do flushing to *_pcoinsTip require a lock? Does not seem that way in *_WriteChainState.
-        if (credits_pcoinsTip->GetCacheSize() > bitcredit_nCoinCacheSize) {
+    	//Therefore, flush only when cache grows to big. This MIGHT cause corruption on power failure or similar
+    	//Note that it is the size of the bitcoin chainstate that decides on flushing
+        if (fWroteChainState) {
             if (!credits_pcoinsTip->Claim_Flush())
-                return state.Abort(_("Failed to write to coin database"));
+                return state.Abort(_("Failed to write to claim coin database"));
         }
     }
     // Resurrect mempool transactions from the disconnected block.
@@ -2521,7 +2597,7 @@ bool Bitcoin_CheckTrimBlockFile(CValidationState &state, FILE* fileIn, const int
                     nLoaded++;
                 }
             } catch (std::exception &e) {
-                LogPrintf("Bitcoin_CheckTrimBlockFile: %s : Deserialize or I/O error - %s", __func__, e.what());
+                LogPrintf("ERROR: Bitcoin_CheckTrimBlockFile: %s : Deserialize or I/O error - %s\n", __func__, e.what());
             }
         }
         fclose(fileIn);
@@ -2539,6 +2615,8 @@ bool Bitcoin_CheckTrimBlockFile(CValidationState &state, FILE* fileIn, const int
 
 bool Bitcoin_CheckTrimCompressedFile(CValidationState &state, FILE* fileIn, const int nTrimToTime, bool& trimBlockFile)
 {
+	const size_t sizeOfUint256 = sizeof(uint256(0));
+
     int64_t nStart = GetTimeMillis();
 
     int nLoaded = 0;
@@ -2572,7 +2650,8 @@ bool Bitcoin_CheckTrimCompressedFile(CValidationState &state, FILE* fileIn, cons
             try {
                 // read block
                 uint64_t nBlockPos = blkdat.GetPos();
-                blkdat.SetLimit(nBlockPos + nSize);
+                //Do note that sizeOfUint256 needs to be added here
+                blkdat.SetLimit(nBlockPos + nSize + sizeOfUint256);
                 Bitcoin_CBlockCompressed block;
                 blkdat >> block;
 
@@ -2591,7 +2670,7 @@ bool Bitcoin_CheckTrimCompressedFile(CValidationState &state, FILE* fileIn, cons
                     nLoaded++;
                 }
             } catch (std::exception &e) {
-                LogPrintf("Bitcoin_CheckTrimCompressedFile: %s : Deserialize or I/O error - %s", __func__, e.what());
+                LogPrintf("ERROR: Bitcoin_CheckTrimCompressedFile: %s : Deserialize or I/O error - %s\n", __func__, e.what());
             }
         }
         fclose(fileIn);
@@ -2666,7 +2745,7 @@ bool Bitcoin_CreateCompressedBlockFile(CValidationState &state, const CDiskBlock
 						nLoaded++;
 					}
 				} catch (std::exception &e) {
-					LogPrintf("Bitcoin_CreateCompressedBlockFile: %s : Deserialize or I/O error - %s", __func__, e.what());
+					LogPrintf("ERROR: Bitcoin_CreateCompressedBlockFile: %s : Deserialize or I/O error - %s\n", __func__, e.what());
 				}
 			}
 			fclose(fileIn);
@@ -2685,7 +2764,7 @@ bool Bitcoin_CreateCompressedBlockFile(CValidationState &state, const CDiskBlock
 
 
 bool Bitcoin_TrimBlockHistory(CValidationState &state) {
-    AssertLockHeld(bitcoin_mainState.cs_main);
+    AssertLockHeld(cs_main);
 
     if(bitcoin_fTrimBlockFiles) {
 		const Bitcoin_CBlockIndex * ptip = (Bitcoin_CBlockIndex*) bitcoin_chainActive.Tip();
@@ -2701,36 +2780,24 @@ bool Bitcoin_TrimBlockHistory(CValidationState &state) {
 					break;
 				CDiskBlockPos pos(nFile, 0);
 				FILE *fileTrim = Bitcoin_OpenBlockFile(pos, true);
-				if (!fileTrim)
-					continue;
-				LogPrintf("Bitcoin: Scanning block file blk%05u.dat for trimming...\n", (unsigned int)nFile);
+				if (fileTrim) {
+					LogPrintf("Bitcoin: Scanning block file blk%05u.dat for trimming...\n", (unsigned int)nFile);
 
-				bool trimBlockFile = false;
-				bool fastForwardClaimStateForAll = true;
-				if(!Bitcoin_CheckTrimBlockFile(state, fileTrim, nTrimToTime, trimBlockFile, fastForwardClaimStateForAll)) {
-					return error("Bitcoin: ConnectTip() : Could not compress block history!");
-				}
-				if(trimBlockFile) {
-					LogPrintf("Bitcoin: Trimming file blk%05u.dat...\n", (unsigned int)nFile);
-
-					if(!fastForwardClaimStateForAll) {
-						if (!Bitcoin_CreateCompressedBlockFile(state, pos)) {
-							return error("Bitcoin: ConnectTip() : Could not compress block history!");
-						}
+					bool trimBlockFile = false;
+					bool fastForwardClaimStateForAll = true;
+					if(!Bitcoin_CheckTrimBlockFile(state, fileTrim, nTrimToTime, trimBlockFile, fastForwardClaimStateForAll)) {
+						return error("Bitcoin: ConnectTip() : Could not compress block history!");
 					}
+					if(trimBlockFile) {
+						LogPrintf("Bitcoin: Trimming file blk%05u.dat...\n", (unsigned int)nFile);
 
-					fileTrim = Bitcoin_OpenBlockFile(pos);
-					if (fileTrim) {
-						if(!TruncateFile(fileTrim, 0)) {
-							return false;
+						if(!fastForwardClaimStateForAll) {
+							if (!Bitcoin_CreateCompressedBlockFile(state, pos)) {
+								return error("Bitcoin: ConnectTip() : Could not compress block history!");
+							}
 						}
-						FileCommit(fileTrim);
-						fclose(fileTrim);
-					}
 
-					//Trim the undo files if we are verified in a fast forward claim state
-					if(fastForwardClaimStateForAll) {
-						fileTrim = Bitcoin_OpenUndoFile(pos);
+						fileTrim = Bitcoin_OpenBlockFile(pos);
 						if (fileTrim) {
 							if(!TruncateFile(fileTrim, 0)) {
 								return false;
@@ -2739,19 +2806,31 @@ bool Bitcoin_TrimBlockHistory(CValidationState &state) {
 							fclose(fileTrim);
 						}
 
-						fileTrim = Bitcoin_OpenUndoFileClaim(pos);
-						if (fileTrim) {
-							if(!TruncateFile(fileTrim, 0)) {
-								return false;
+						//Trim the undo files if we are verified in a fast forward claim state
+						if(fastForwardClaimStateForAll) {
+							fileTrim = Bitcoin_OpenUndoFile(pos);
+							if (fileTrim) {
+								if(!TruncateFile(fileTrim, 0)) {
+									return false;
+								}
+								FileCommit(fileTrim);
+								fclose(fileTrim);
 							}
-							FileCommit(fileTrim);
-							fclose(fileTrim);
-						}
-					}
 
-					//TODO - This is left over functionality currently used to handle switching from non-trimmed to trimmed blockchain
-					bitcoin_mainState.nTrimToTime = pTrimTo->nTime;
-					bitcoin_pblocktree->WriteTrimToTime(bitcoin_mainState.nTrimToTime);
+							fileTrim = Bitcoin_OpenUndoFileClaim(pos);
+							if (fileTrim) {
+								if(!TruncateFile(fileTrim, 0)) {
+									return false;
+								}
+								FileCommit(fileTrim);
+								fclose(fileTrim);
+							}
+						}
+
+						//TODO - This is left over functionality currently used to handle switching from non-trimmed to trimmed blockchain
+						bitcoin_mainState.nTrimToTime = pTrimTo->nTime;
+						bitcoin_pblocktree->WriteTrimToTime(bitcoin_mainState.nTrimToTime);
+					}
 				}
 				nFile++;
 			}
@@ -2762,7 +2841,7 @@ bool Bitcoin_TrimBlockHistory(CValidationState &state) {
 }
 
 bool Bitcoin_TrimCompressedBlockHistory(CValidationState &state) {
-    AssertLockHeld(bitcoin_mainState.cs_main);
+    AssertLockHeld(cs_main);
 
     if(bitcoin_fTrimBlockFiles) {
 		const Credits_CBlockIndex * ptip = (Credits_CBlockIndex*) credits_chainActive.Tip();
@@ -2783,42 +2862,42 @@ bool Bitcoin_TrimCompressedBlockHistory(CValidationState &state) {
 					break;
 				CDiskBlockPos pos(nFile, 0);
 				FILE *fileTrim = Bitcoin_OpenCompressedFile(pos, true);
-				if (!fileTrim)
-					continue;
-				LogPrintf("Bitcoin: Scanning compressed file crp%05u.dat for trimming...\n", (unsigned int)nFile);
+				if (fileTrim) {
+					LogPrintf("Bitcoin: Scanning compressed file crp%05u.dat for trimming...\n", (unsigned int)nFile);
 
-				bool trimBlockFile = false;
-				if(!Bitcoin_CheckTrimCompressedFile(state, fileTrim, nTrimToTime, trimBlockFile)) {
-					return error("Bitcoin: ConnectTip() : Could not trim compressed block history!");
-				}
-				if(trimBlockFile) {
-					LogPrintf("Bitcoin: Trimming file crp%05u.dat...\n", (unsigned int)nFile);
-
-					fileTrim = Bitcoin_OpenCompressedFile(pos);
-					if (fileTrim) {
-						if(!TruncateFile(fileTrim, 0)) {
-							return false;
-						}
-						FileCommit(fileTrim);
-						fclose(fileTrim);
+					bool trimBlockFile = false;
+					if(!Bitcoin_CheckTrimCompressedFile(state, fileTrim, nTrimToTime, trimBlockFile)) {
+						return error("Bitcoin: ConnectTip() : Could not trim compressed block history!");
 					}
+					if(trimBlockFile) {
+						LogPrintf("Bitcoin: Trimming file crp%05u.dat...\n", (unsigned int)nFile);
 
-					fileTrim = Bitcoin_OpenUndoFile(pos);
-					if (fileTrim) {
-						if(!TruncateFile(fileTrim, 0)) {
-							return false;
+						fileTrim = Bitcoin_OpenCompressedFile(pos);
+						if (fileTrim) {
+							if(!TruncateFile(fileTrim, 0)) {
+								return false;
+							}
+							FileCommit(fileTrim);
+							fclose(fileTrim);
 						}
-						FileCommit(fileTrim);
-						fclose(fileTrim);
-					}
 
-					fileTrim = Bitcoin_OpenUndoFileClaim(pos);
-					if (fileTrim) {
-						if(!TruncateFile(fileTrim, 0)) {
-							return false;
+						fileTrim = Bitcoin_OpenUndoFile(pos);
+						if (fileTrim) {
+							if(!TruncateFile(fileTrim, 0)) {
+								return false;
+							}
+							FileCommit(fileTrim);
+							fclose(fileTrim);
 						}
-						FileCommit(fileTrim);
-						fclose(fileTrim);
+
+						fileTrim = Bitcoin_OpenUndoFileClaim(pos);
+						if (fileTrim) {
+							if(!TruncateFile(fileTrim, 0)) {
+								return false;
+							}
+							FileCommit(fileTrim);
+							fclose(fileTrim);
+						}
 					}
 				}
 				nFile++;
@@ -2860,17 +2939,17 @@ bool static Bitcoin_ConnectTip(CValidationState &state, Bitcoin_CBlockIndex *pin
     if (bitcoin_fBenchmark)
         LogPrintf("Bitcoin: - Connect: %.2fms\n", (GetTimeMicros() - nStart) * 0.001);
     // Write the chain state to disk, if necessary.
-    if (!Bitcoin_WriteChainState(state))
+    bool fWroteChainState;
+    if (!Bitcoin_WriteChainState(state, fWroteChainState))
         return false;
     if(fastForwardClaimState) {
     	//Workaround to flush coins - used instead of Bitcredit_WriteChainState()
-    	//If bitcredit_mainState.cs_main is used here, we will end up in deadlock
     	//This flushing will only happen on fast forward, which can be assumed to be initial block download or reindex
-    	//Therefore, flush only when cache grows to big. This could cause corruption on power failure or similar
-    	//Question is, do flushing to *_pcoinsTip require a lock? Does not seem that way in *_WriteChainState.
-        if (credits_pcoinsTip->GetCacheSize() > bitcredit_nCoinCacheSize) {
+    	//Therefore, flush only when cache grows to big. This MIGHT cause corruption on power failure or similar
+    	//Note that it is the size of the bitcoin chainstate that decides on flushing
+        if (fWroteChainState) {
             if (!credits_pcoinsTip->Claim_Flush())
-                return state.Abort(_("Failed to write to coin database"));
+                return state.Abort(_("Failed to write to claim coin database"));
         }
     }
     // Remove conflicting transactions from the mempool.
@@ -2980,7 +3059,7 @@ void static Bitcoin_FindMostWorkChain() {
 
 // Try to activate to the most-work chain (thereby connecting it).
 bool Bitcoin_ActivateBestChain(CValidationState &state) {
-    LOCK(bitcoin_mainState.cs_main);
+    LOCK(cs_main);
     Bitcoin_CBlockIndex *pindexOldTip = (Bitcoin_CBlockIndex*)bitcoin_chainActive.Tip();
     bool fComplete = false;
     while (!fComplete) {
@@ -3043,7 +3122,7 @@ void PrintClaimMovement(std::string prefix, Bitcoin_CBlockIndex* pCurrentIndex, 
 
 /** Move the position of the claim tip (a structure similar to chainstate + undo) */
 bool Bitcoin_AlignClaimTip(const Credits_CBlockIndex * expectedCurrentBitcreditBlockIndex, const Credits_CBlockIndex *palignToBitcreditBlockIndex, Credits_CCoinsViewCache& view, CValidationState &state, bool updateUndo, std::vector<pair<Bitcoin_CBlockIndex*, Bitcoin_CBlockUndoClaim> > &vBlockUndoClaims) {
-	LOCK(bitcoin_mainState.cs_main);
+	LOCK(cs_main);
 
 	const uint256 moveToBitcoinHash = palignToBitcreditBlockIndex->hashLinkedBitcoinBlock;
 	std::map<uint256, Bitcoin_CBlockIndex*>::iterator mi = bitcoin_mapBlockIndex.find(moveToBitcoinHash);
@@ -3231,7 +3310,7 @@ bool Bitcoin_ReceivedBlockTransactions(const Bitcoin_CBlock &block, CValidationS
     if (!Bitcoin_ActivateBestChain(state))
         return false;
 
-    LOCK(bitcoin_mainState.cs_main);
+    LOCK(cs_main);
     if (pindexNew == bitcoin_chainActive.Tip())
     {
         // Clear fork warning if its no longer applicable
@@ -3256,7 +3335,7 @@ bool Bitcoin_FindBlockPos(CValidationState &state, CDiskBlockPos &pos, unsigned 
 {
     bool fUpdatedLast = false;
 
-    LOCK(bitcoin_mainState.cs_LastBlockFile);
+    LOCK(cs_LastBlockFile);
 
     if (fKnown) {
         if (bitcoin_mainState.nLastBlockFile != pos.nFile) {
@@ -3285,7 +3364,7 @@ bool Bitcoin_FindBlockPos(CValidationState &state, CDiskBlockPos &pos, unsigned 
         unsigned int nOldChunks = (pos.nPos + BITCOIN_BLOCKFILE_CHUNK_SIZE - 1) / BITCOIN_BLOCKFILE_CHUNK_SIZE;
         unsigned int nNewChunks = (bitcoin_mainState.infoLastBlockFile.nSize + BITCOIN_BLOCKFILE_CHUNK_SIZE - 1) / BITCOIN_BLOCKFILE_CHUNK_SIZE;
         if (nNewChunks > nOldChunks) {
-            if (Bitcoin_CheckDiskSpace(nNewChunks * BITCOIN_BLOCKFILE_CHUNK_SIZE - pos.nPos)) {
+            if (CheckDiskSpace(nNewChunks * BITCOIN_BLOCKFILE_CHUNK_SIZE - pos.nPos)) {
                 FILE *file = Bitcoin_OpenBlockFile(pos);
                 if (file) {
                     LogPrintf("Bitcoin: Pre-allocating up to position 0x%x in blk%05u.dat\n", nNewChunks * BITCOIN_BLOCKFILE_CHUNK_SIZE, pos.nFile);
@@ -3310,7 +3389,7 @@ bool Bitcoin_FindCompressedPos(MainState& mainState, CValidationState &state, in
 {
     pos.nFile = nFile;
 
-    LOCK(mainState.cs_LastBlockFile);
+    LOCK(cs_LastBlockFile);
 
     unsigned int nNewSize;
     if (nFile == mainState.nLastBlockFile) {
@@ -3331,7 +3410,7 @@ bool Bitcoin_FindCompressedPos(MainState& mainState, CValidationState &state, in
     unsigned int nOldChunks = (pos.nPos + BITCOIN_COMPRESSEDFILE_CHUNK_SIZE - 1) / BITCOIN_COMPRESSEDFILE_CHUNK_SIZE;
     unsigned int nNewChunks = (nNewSize + BITCOIN_COMPRESSEDFILE_CHUNK_SIZE - 1) / BITCOIN_COMPRESSEDFILE_CHUNK_SIZE;
     if (nNewChunks > nOldChunks) {
-        if (Bitcoin_CheckDiskSpace(nNewChunks * BITCOIN_COMPRESSEDFILE_CHUNK_SIZE - pos.nPos)) {
+        if (CheckDiskSpace(nNewChunks * BITCOIN_COMPRESSEDFILE_CHUNK_SIZE - pos.nPos)) {
             FILE *file = Bitcoin_OpenCompressedFile(pos);
             if (file) {
                 LogPrintf("Bitcoin: Pre-allocating up to position 0x%x in cpr%05u.dat\n", nNewChunks * BITCOIN_COMPRESSEDFILE_CHUNK_SIZE, pos.nFile);
@@ -3350,7 +3429,7 @@ bool Bitcoin_FindUndoPos(MainState& mainState, CValidationState &state, int nFil
 {
     pos.nFile = nFile;
 
-    LOCK(mainState.cs_LastBlockFile);
+    LOCK(cs_LastBlockFile);
 
     unsigned int nNewSize;
     if (nFile == mainState.nLastBlockFile) {
@@ -3371,7 +3450,7 @@ bool Bitcoin_FindUndoPos(MainState& mainState, CValidationState &state, int nFil
     unsigned int nOldChunks = (pos.nPos + BITCOIN_UNDOFILE_CHUNK_SIZE - 1) / BITCOIN_UNDOFILE_CHUNK_SIZE;
     unsigned int nNewChunks = (nNewSize + BITCOIN_UNDOFILE_CHUNK_SIZE - 1) / BITCOIN_UNDOFILE_CHUNK_SIZE;
     if (nNewChunks > nOldChunks) {
-        if (Bitcoin_CheckDiskSpace(nNewChunks * BITCOIN_UNDOFILE_CHUNK_SIZE - pos.nPos)) {
+        if (CheckDiskSpace(nNewChunks * BITCOIN_UNDOFILE_CHUNK_SIZE - pos.nPos)) {
             FILE *file = Bitcoin_OpenUndoFile(pos);
             if (file) {
                 LogPrintf("Bitcoin: Pre-allocating up to position 0x%x in rev%05u.dat\n", nNewChunks * BITCOIN_UNDOFILE_CHUNK_SIZE, pos.nFile);
@@ -3390,7 +3469,7 @@ bool Bitcoin_FindUndoPosClaim(MainState& mainState, CValidationState &state, int
 {
     pos.nFile = nFile;
 
-    LOCK(mainState.cs_LastBlockFile);
+    LOCK(cs_LastBlockFile);
 
     unsigned int nNewSize;
     if (nFile == mainState.nLastBlockFile) {
@@ -3411,7 +3490,7 @@ bool Bitcoin_FindUndoPosClaim(MainState& mainState, CValidationState &state, int
     unsigned int nOldChunks = (pos.nPos + BITCOIN_UNDOFILE_CHUNK_SIZE - 1) / BITCOIN_UNDOFILE_CHUNK_SIZE;
     unsigned int nNewChunks = (nNewSize + BITCOIN_UNDOFILE_CHUNK_SIZE - 1) / BITCOIN_UNDOFILE_CHUNK_SIZE;
     if (nNewChunks > nOldChunks) {
-        if (Bitcoin_CheckDiskSpace(nNewChunks * BITCOIN_UNDOFILE_CHUNK_SIZE - pos.nPos)) {
+        if (CheckDiskSpace(nNewChunks * BITCOIN_UNDOFILE_CHUNK_SIZE - pos.nPos)) {
             FILE *file = Bitcoin_OpenUndoFileClaim(pos);
             if (file) {
                 LogPrintf("Bitcoin: Pre-allocating up to position 0x%x in cla%05u.dat\n", nNewChunks * BITCOIN_UNDOFILE_CHUNK_SIZE, pos.nFile);
@@ -3525,7 +3604,7 @@ bool Bitcoin_CheckBlock(const Bitcoin_CBlock& block, CValidationState& state, bo
 
 bool Bitcoin_AcceptBlockHeader(Bitcoin_CBlockHeader& block, CValidationState& state, Bitcoin_CBlockIndex** ppindex)
 {
-    AssertLockHeld(bitcoin_mainState.cs_main);
+    AssertLockHeld(cs_main);
     // Check for duplicate
     uint256 hash = block.GetHash();
     std::map<uint256, Bitcoin_CBlockIndex*>::iterator miSelf = bitcoin_mapBlockIndex.find(hash);
@@ -3589,7 +3668,7 @@ bool Bitcoin_AcceptBlockHeader(Bitcoin_CBlockHeader& block, CValidationState& st
 
 bool Bitcoin_AcceptBlock(Bitcoin_CBlock& block, CValidationState& state, Bitcoin_CBlockIndex** ppindex, CDiskBlockPos* dbp, CNetParams * netParams)
 {
-    AssertLockHeld(bitcoin_mainState.cs_main);
+    AssertLockHeld(cs_main);
 
     Bitcoin_CBlockIndex *&pindex = *ppindex;
 
@@ -3675,7 +3754,7 @@ bool Bitcoin_CBlockIndex::IsSuperMajority(int minVersion, const Bitcoin_CBlockIn
 
 void Bitcoin_PushGetBlocks(CNode* pnode, Bitcoin_CBlockIndex* pindexBegin, uint256 hashEnd)
 {
-    AssertLockHeld(bitcoin_mainState.cs_main);
+    AssertLockHeld(cs_main);
     // Filter out duplicate requests
     if (pindexBegin == pnode->pindexLastGetBlocksBegin && hashEnd == pnode->hashLastGetBlocksEnd)
         return;
@@ -3687,13 +3766,13 @@ void Bitcoin_PushGetBlocks(CNode* pnode, Bitcoin_CBlockIndex* pindexBegin, uint2
 
 bool Bitcoin_ProcessBlock(CValidationState &state, CNode* pfrom, Bitcoin_CBlock* pblock, CDiskBlockPos *dbp)
 {
-    AssertLockHeld(bitcoin_mainState.cs_main);
+    AssertLockHeld(cs_main);
 
     // Check for duplicate
     uint256 hash = pblock->GetHash();
     if (bitcoin_mapBlockIndex.count(hash))
         return state.Invalid(error("Bitcoin: ProcessBlock() : already have block %d %s", bitcoin_mapBlockIndex[hash]->nHeight, hash.ToString()), 0, "duplicate");
-    if (bitcoin_mapOrphanBlocks.count(hash))
+    if (bitcoin_orphanIndex.mapOrphanBlocks.count(hash))
         return state.Invalid(error("Bitcoin: ProcessBlock() : already have block (orphan) %s", hash.ToString()), 0, "duplicate");
 
     // Preliminary checks
@@ -3704,27 +3783,40 @@ bool Bitcoin_ProcessBlock(CValidationState &state, CNode* pfrom, Bitcoin_CBlock*
     std::map<uint256, Bitcoin_CBlockIndex*>::iterator it = bitcoin_mapBlockIndex.find(pblock->hashPrevBlock);
     if (pblock->hashPrevBlock != 0 && (it == bitcoin_mapBlockIndex.end() || !(it->second->nStatus & BLOCK_HAVE_DATA)))
     {
-        LogPrintf("Bitcoin: ProcessBlock: ORPHAN BLOCK %lu, prev=%s\n", (unsigned long)bitcoin_mapOrphanBlocks.size(), pblock->hashPrevBlock.ToString());
+        LogPrintf("Bitcoin: ProcessBlock: ORPHAN BLOCK %lu, prev=%s\n", (unsigned long)bitcoin_orphanIndex.mapOrphanBlocks.size(), pblock->hashPrevBlock.ToString());
 
         // Accept orphans as long as there is a node to request its parents from
         if (pfrom) {
-            Bitcoin_PruneOrphanBlocks();
+        	const int64_t nMaxOrphansMemory = GetArg("-bitcoin_maxorphanblocksmemory", BITCOIN_DEFAULT_MAX_ORPHAN_BLOCKS_MEMORY);
+        	const int64_t nMaxOrphansDisk = GetArg("-bitcoin_maxorphanblocksdisk", BITCOIN_DEFAULT_MAX_ORPHAN_BLOCKS_DISK);
+        	bitcoin_orphanIndex.PruneOrphanBlocks(nMaxOrphansMemory, nMaxOrphansDisk);
             COrphanBlock* pblock2 = new COrphanBlock();
             {
-                CDataStream ss(SER_DISK, Bitcoin_Params().ClientVersion());
-                ss << *pblock;
-                pblock2->vchBlock = std::vector<unsigned char>(ss.begin(), ss.end());
+            	if(bitcoin_orphanIndex.nStoredInMemory < nMaxOrphansMemory) {
+					CDataStream ss(SER_DISK, Bitcoin_Params().ClientVersion());
+					ss << *pblock;
+					pblock2->vchBlock = std::vector<unsigned char>(ss.begin(), ss.end());
+					pblock2->fStoredInMemory = true;
+					bitcoin_orphanIndex.nStoredInMemory++;
+            	} else {
+					if(!Bitcoin_WriteOrphanToDisk(*pblock, pfrom)) {
+						return error(strprintf("Bitcoin: ProcessBlock() : FAILED to write orphan %s to disk", pblock->GetHash().GetHex()));
+					}
+					pblock2->fStoredInMemory = false;
+            	}
             }
             pblock2->hashBlock = hash;
             pblock2->hashPrev = pblock->hashPrevBlock;
-            bitcoin_mapOrphanBlocks.insert(make_pair(hash, pblock2));
-            bitcoin_mapOrphanBlocksByPrev.insert(make_pair(pblock2->hashPrev, pblock2));
+            bitcoin_orphanIndex.mapOrphanBlocks.insert(make_pair(hash, pblock2));
+            bitcoin_orphanIndex.mapOrphanBlocksByPrev.insert(make_pair(pblock2->hashPrev, pblock2));
 
             // Ask this guy to fill in what we're missing
-            Bitcoin_PushGetBlocks(pfrom, (Bitcoin_CBlockIndex*)bitcoin_chainActive.Tip(), Bitcoin_GetOrphanRoot(hash));
+            Bitcoin_PushGetBlocks(pfrom, (Bitcoin_CBlockIndex*)bitcoin_chainActive.Tip(), bitcoin_orphanIndex.GetOrphanRoot(hash));
         }
         return true;
     }
+
+    const unsigned int nHeightBefore = bitcoin_chainActive.Tip()->nHeight;
 
     // Store to disk
     Bitcoin_CBlockIndex *pindex = NULL;
@@ -3738,14 +3830,28 @@ bool Bitcoin_ProcessBlock(CValidationState &state, CNode* pfrom, Bitcoin_CBlock*
     for (unsigned int i = 0; i < vWorkQueue.size(); i++)
     {
         uint256 hashPrev = vWorkQueue[i];
-        for (multimap<uint256, COrphanBlock*>::iterator mi = bitcoin_mapOrphanBlocksByPrev.lower_bound(hashPrev);
-             mi != bitcoin_mapOrphanBlocksByPrev.upper_bound(hashPrev);
+        std::vector <COrphanBlock*>deleteOrphans;
+        for (multimap<uint256, COrphanBlock*>::iterator mi = bitcoin_orphanIndex.mapOrphanBlocksByPrev.lower_bound(hashPrev);
+             mi != bitcoin_orphanIndex.mapOrphanBlocksByPrev.upper_bound(hashPrev);
              ++mi)
         {
             Bitcoin_CBlock block;
             {
-                CDataStream ss(mi->second->vchBlock, SER_DISK, Bitcoin_Params().ClientVersion());
-                ss >> block;
+            	if(mi->second->fStoredInMemory) {
+					CDataStream ss(mi->second->vchBlock, SER_DISK, Bitcoin_Params().ClientVersion());
+					ss >> block;
+            	} else {
+					if(!Bitcoin_ReadOrphanFromDisk(mi->second->hashBlock, block)) {
+						LogPrintf("Bitcoin_ProcessBlock() : Read orphaned block from disk FAILED for %s!\n", mi->second->hashBlock.GetHex());
+
+						bitcoin_orphanIndex.RemoveOrpan(mi->second);
+						//Gather all connected orphans for later deletion
+						deleteOrphans.push_back(mi->second);
+						delete mi->second;
+
+						continue;
+					}
+            	}
             }
             block.BuildMerkleTree();
             // Use a dummy CValidationState so someone can't setup nodes to counter-DoS based on orphan resolution (that is, feeding people an invalid block based on LegitBlockX in order to get anyone relaying LegitBlockX banned)
@@ -3753,13 +3859,34 @@ bool Bitcoin_ProcessBlock(CValidationState &state, CNode* pfrom, Bitcoin_CBlock*
             Bitcoin_CBlockIndex *pindexChild = NULL;
             if (Bitcoin_AcceptBlock(block, stateDummy, &pindexChild, NULL, Bitcoin_NetParams()))
                 vWorkQueue.push_back(mi->second->hashBlock);
-            bitcoin_mapOrphanBlocks.erase(mi->second->hashBlock);
-            delete mi->second;
+
+			bitcoin_orphanIndex.RemoveOrpan(mi->second);
+			//Gather all connected orphans for later deletion
+			deleteOrphans.push_back(mi->second);
+			delete mi->second;
         }
-        bitcoin_mapOrphanBlocksByPrev.erase(hashPrev);
+        bitcoin_orphanIndex.DeletePrevPartial(hashPrev, deleteOrphans);
     }
 
     LogPrintf("Bitcoin: ProcessBlock: ACCEPTED\n");
+
+    //Once a block and all it's orphans have been processed, trigger processing
+    //of all orphaned credits blocks that references the newly accepted bitcoin blocks
+    const unsigned int nHeightAfter = bitcoin_chainActive.Tip()->nHeight;
+    const unsigned int nAcceptDepth = Credits_Params().AcceptDepthLinkedBitcoinBlock();
+    if(nHeightAfter > nHeightBefore && nHeightBefore >= nAcceptDepth) {
+    	Bitcoin_CBlockIndex* pAcceptBlockBefore = bitcoin_chainActive[nHeightBefore - nAcceptDepth];
+    	Bitcoin_CBlockIndex* pAcceptBlockAfter = bitcoin_chainActive[nHeightAfter - nAcceptDepth];
+
+    	vector<Bitcoin_CBlockIndex*> triggerBlocks;
+    	Bitcoin_CBlockIndex* pCurrent = pAcceptBlockBefore;
+    	while(pCurrent != pAcceptBlockAfter) {
+    		triggerBlocks.push_back(pCurrent);
+    		pCurrent = (Bitcoin_CBlockIndex*)bitcoin_chainActive.Next(pCurrent);
+    	}
+
+    	Credits_ProcessBitcoinLinkedOprhans(triggerBlocks);
+    }
 
     return true;
 }
@@ -3805,13 +3932,12 @@ bool AbortNode(const std::string &strMessage) {
     return false;
 }
 
-
-bool Bitcoin_CheckDiskSpace(uint64_t nAdditionalBytes)
+bool CheckDiskSpace(uint64_t nAdditionalBytes)
 {
     uint64_t nFreeBytesAvailable = filesystem::space(GetDataDir()).available;
 
     // Check for nMinDiskSpace bytes (currently 50MB)
-    if (nFreeBytesAvailable < bitcoin_nMinDiskSpace + nAdditionalBytes)
+    if (nFreeBytesAvailable < nMinDiskSpace + nAdditionalBytes)
         return AbortNode(_("Error: Disk space is low!"));
 
     return true;
@@ -3922,7 +4048,7 @@ Bitcoin_CVerifyDB::~Bitcoin_CVerifyDB()
 
 bool Bitcoin_CVerifyDB::VerifyDB(int nCheckLevel, int nCheckDepth)
 {
-    LOCK(bitcoin_mainState.cs_main);
+    LOCK(cs_main);
     if (bitcoin_chainActive.Tip() == NULL || bitcoin_chainActive.Tip()->pprev == NULL)
         return true;
 
@@ -4025,7 +4151,7 @@ bool Bitcoin_LoadBlockIndex()
 
 
 bool Bitcoin_InitBlockIndex() {
-    LOCK(bitcoin_mainState.cs_main);
+    LOCK(cs_main);
     // Check whether we're already initialized
     if (bitcoin_chainActive.Genesis() != NULL)
         return true;
@@ -4067,7 +4193,7 @@ bool Bitcoin_InitBlockIndex() {
 
 void Bitcoin_PrintBlockTree()
 {
-    AssertLockHeld(bitcoin_mainState.cs_main);
+    AssertLockHeld(cs_main);
     // pre-compute tree structure
     map<Bitcoin_CBlockIndex*, vector<Bitcoin_CBlockIndex*> > mapNext;
     for (map<uint256, Bitcoin_CBlockIndex*>::iterator mi = bitcoin_mapBlockIndex.begin(); mi != bitcoin_mapBlockIndex.end(); ++mi)
@@ -4189,7 +4315,7 @@ bool Bitcoin_LoadExternalBlockFile(FILE* fileIn, CDiskBlockPos *dbp)
 
                 // process block
                 if (nBlockPos >= nStartByte) {
-                    LOCK(bitcoin_mainState.cs_main);
+                    LOCK(cs_main);
                     if (dbp)
                         dbp->nPos = nBlockPos;
                     CValidationState state;
@@ -4199,7 +4325,7 @@ bool Bitcoin_LoadExternalBlockFile(FILE* fileIn, CDiskBlockPos *dbp)
                         break;
                 }
             } catch (std::exception &e) {
-                LogPrintf("Bitcoin_LoadExternalBlockFile: %s : Deserialize or I/O error - %s", __func__, e.what());
+                LogPrintf("ERROR: Bitcoin_LoadExternalBlockFile: %s : Deserialize or I/O error - %s\n", __func__, e.what());
             }
         }
         fclose(fileIn);
@@ -4303,7 +4429,7 @@ bool static Bitcoin_AlreadyHave(const CInv& inv)
         }
     case MSG_BLOCK:
         return bitcoin_mapBlockIndex.count(inv.hash) ||
-               bitcoin_mapOrphanBlocks.count(inv.hash);
+               bitcoin_orphanIndex.mapOrphanBlocks.count(inv.hash);
     }
     // Don't know what it is, just say we already got one
     return true;
@@ -4316,7 +4442,7 @@ void static Bitcoin_ProcessGetData(CNode* pfrom)
 
     vector<CInv> vNotFound;
 
-    LOCK(bitcoin_mainState.cs_main);
+    LOCK(cs_main);
 
     while (it != pfrom->vRecvGetData.end()) {
         // Don't bother if send buffer is too full to respond anyway
@@ -4461,7 +4587,7 @@ bool static Bitcoin_ProcessMessage(CNode* pfrom, string strCommand, CDataStream&
     }
 
     {
-        LOCK(bitcoin_mainState.cs_main);
+        LOCK(cs_main);
         Bitcoin_State(pfrom->GetId())->nLastBlockProcess = GetTimeMicros();
     }
 
@@ -4663,7 +4789,7 @@ bool static Bitcoin_ProcessMessage(CNode* pfrom, string strCommand, CDataStream&
             return error("Bitcoin: message inv size() = %u", vInv.size());
         }
 
-        LOCK(bitcoin_mainState.cs_main);
+        LOCK(cs_main);
 
         for (unsigned int nInv = 0; nInv < vInv.size(); nInv++)
         {
@@ -4682,8 +4808,8 @@ bool static Bitcoin_ProcessMessage(CNode* pfrom, string strCommand, CDataStream&
                     else
                         pfrom->AskFor(inv);
                 }
-            } else if (inv.type == MSG_BLOCK && bitcoin_mapOrphanBlocks.count(inv.hash)) {
-                Bitcoin_PushGetBlocks(pfrom, (Bitcoin_CBlockIndex*)bitcoin_chainActive.Tip(), Bitcoin_GetOrphanRoot(inv.hash));
+            } else if (inv.type == MSG_BLOCK && bitcoin_orphanIndex.mapOrphanBlocks.count(inv.hash)) {
+                Bitcoin_PushGetBlocks(pfrom, (Bitcoin_CBlockIndex*)bitcoin_chainActive.Tip(), bitcoin_orphanIndex.GetOrphanRoot(inv.hash));
             }
 
             // Track requests for our stuff
@@ -4719,7 +4845,7 @@ bool static Bitcoin_ProcessMessage(CNode* pfrom, string strCommand, CDataStream&
         uint256 hashStop;
         vRecv >> locator >> hashStop;
 
-        LOCK(bitcoin_mainState.cs_main);
+        LOCK(cs_main);
 
         // Find the last block the caller has in the main chain
         Bitcoin_CBlockIndex* pindex = bitcoin_chainActive.FindFork(locator);
@@ -4755,7 +4881,7 @@ bool static Bitcoin_ProcessMessage(CNode* pfrom, string strCommand, CDataStream&
         uint256 hashStop;
         vRecv >> locator >> hashStop;
 
-        LOCK(bitcoin_mainState.cs_main);
+        LOCK(cs_main);
 
         Bitcoin_CBlockIndex* pindex = NULL;
         if (locator.IsNull())
@@ -4797,7 +4923,7 @@ bool static Bitcoin_ProcessMessage(CNode* pfrom, string strCommand, CDataStream&
         CInv inv(MSG_TX, tx.GetHash());
         pfrom->AddInventoryKnown(inv);
 
-        LOCK(bitcoin_mainState.cs_main);
+        LOCK(cs_main);
 
         bool fMissingInputs = false;
         CValidationState state;
@@ -4885,7 +5011,7 @@ bool static Bitcoin_ProcessMessage(CNode* pfrom, string strCommand, CDataStream&
         CInv inv(MSG_BLOCK, block.GetHash());
         pfrom->AddInventoryKnown(inv);
 
-        LOCK(bitcoin_mainState.cs_main);
+        LOCK(cs_main);
         // Remember who we got this block from.
         bitcoin_mapBlockSource[inv.hash] = pfrom->GetId();
         Bitcoin_MarkBlockAsReceived(inv.hash, pfrom->GetId());
@@ -4906,7 +5032,7 @@ bool static Bitcoin_ProcessMessage(CNode* pfrom, string strCommand, CDataStream&
 
     else if (strCommand == "mempool")
     {
-        LOCK2(bitcoin_mainState.cs_main, pfrom->cs_filter);
+        LOCK2(cs_main, pfrom->cs_filter);
 
         std::vector<uint256> vtxid;
         bitcoin_mempool.queryHashes(vtxid);
@@ -5289,7 +5415,7 @@ bool Bitcoin_SendMessages(CNode* pto, bool fSendTrickle)
             }
         }
 
-        TRY_LOCK(bitcoin_mainState.cs_main, lockMain); // Acquire cs_main for IsInitialBlockDownload() and CNodeState()
+        TRY_LOCK(cs_main, lockMain); // Acquire cs_main for IsInitialBlockDownload() and CNodeState()
         if (!lockMain)
             return true;
 
@@ -5492,10 +5618,10 @@ public:
         bitcoin_mapBlockIndex.clear();
 
         // orphan blocks
-        std::map<uint256, COrphanBlock*>::iterator it2 = bitcoin_mapOrphanBlocks.begin();
-        for (; it2 != bitcoin_mapOrphanBlocks.end(); it2++)
+        std::map<uint256, COrphanBlock*>::iterator it2 = bitcoin_orphanIndex.mapOrphanBlocks.begin();
+        for (; it2 != bitcoin_orphanIndex.mapOrphanBlocks.end(); it2++)
             delete (*it2).second;
-        bitcoin_mapOrphanBlocks.clear();
+        bitcoin_orphanIndex.SetNull();
 
         // orphan transactions
         bitcoin_mapOrphanTransactions.clear();

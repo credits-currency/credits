@@ -152,7 +152,7 @@ QList<Bitcoin_TransactionRecord> Bitcoin_TransactionRecord::decomposeTransaction
 
 void Bitcoin_TransactionRecord::updateStatus(const Bitcoin_CWalletTx &wtx)
 {
-    AssertLockHeld(bitcoin_mainState.cs_main);
+    AssertLockHeld(cs_main);
     // Determine transaction status
 
     // Find the block the tx is in
@@ -237,7 +237,7 @@ void Bitcoin_TransactionRecord::updateStatus(const Bitcoin_CWalletTx &wtx)
 
 bool Bitcoin_TransactionRecord::statusUpdateNeeded()
 {
-    AssertLockHeld(bitcoin_mainState.cs_main);
+    AssertLockHeld(cs_main);
     return status.cur_num_blocks != bitcoin_chainActive.Height();
 }
 

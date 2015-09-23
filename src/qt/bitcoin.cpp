@@ -440,10 +440,10 @@ void BitcreditApplication::initializeResult(int retval)
 
         emit splashFinished(window);
 
-        credits_clientModel = new ClientModel(bitcredit_optionsModel, 0, Credits_NetParams(), credits_mainState, credits_chainActive);
+        credits_clientModel = new ClientModel(bitcredit_optionsModel, 0, Credits_NetParams(), credits_mainState, credits_chainActive, credits_orphanIndex);
         window->bitcredit_setClientModel(credits_clientModel);
 
-        bitcoin_clientModel = new ClientModel(bitcoin_optionsModel, 0, Bitcoin_NetParams(), bitcoin_mainState, bitcoin_chainActive);
+        bitcoin_clientModel = new ClientModel(bitcoin_optionsModel, 0, Bitcoin_NetParams(), bitcoin_mainState, bitcoin_chainActive, bitcoin_orphanIndex);
         window->bitcoin_setClientModel(bitcoin_clientModel);
 
         // Connect signals to client

@@ -451,14 +451,14 @@ Credits_CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyCoinbase, cons
     // Collect memory pool transactions into the block
     int64_t nFees = 0;
     {
-        LOCK2(credits_mainState.cs_main, credits_mempool.cs);
+        LOCK2(cs_main, credits_mempool.cs);
         Credits_CBlockIndex* pindexPrev = (Credits_CBlockIndex*)credits_chainActive.Tip();
 
         //Verify linked block
         Bitcoin_CBlockIndex* pprevLinkedBlock;
         int nPrevLinkedHeight;
         {
-        LOCK(bitcoin_mainState.cs_main);
+        LOCK(cs_main);
         const map<uint256, Bitcoin_CBlockIndex*>::iterator mi = bitcoin_mapBlockIndex.find(pindexPrev->hashLinkedBitcoinBlock);
         if (mi == bitcoin_mapBlockIndex.end()) {
             LogPrintf("\n\nERROR! Linked bitcoin block %s not found in bitcoin blockchain!\n\n", pindexPrev->hashLinkedBitcoinBlock.GetHex());
@@ -476,7 +476,7 @@ Credits_CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyCoinbase, cons
         //Bitcoin_IsInitialBlockDownload is used as the general  function indicating that the downloaded bitcoin blockchain
         //is ready to be used by the credits system.
         {
-        LOCK(bitcoin_mainState.cs_main);
+        LOCK(cs_main);
         const Bitcoin_CBlockIndex * activeBlockAtHeight = bitcoin_chainActive[nPrevLinkedHeight];
         if(*activeBlockAtHeight->phashBlock != *pprevLinkedBlock->phashBlock) {
             LogPrintf("\n\nERROR! Referenced bitcoin block is not the same as block in active chain. Active chain has probably changed. Hashes are\n%s\n%s \n\n", activeBlockAtHeight->phashBlock->GetHex(), pprevLinkedBlock->phashBlock->GetHex());
@@ -830,7 +830,7 @@ Credits_CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyCoinbase, cons
 			const uint64_t nRequiredExtraDeposit = requiredDepositLevel - (coinbaseDepositDisabled ? 0 : maxBlockSubsidyIncFee);
 
 			{
-				LOCK(credits_mainState.cs_main);
+				LOCK(cs_main);
 
 				//Create a set of deposit txs to choose from
 				vector<const Credits_CWalletTx*> vDepositWalletTxs;
@@ -1149,7 +1149,7 @@ bool CheckWork(Credits_CBlock* pblock, Credits_CWallet& credits_wallet, Credits_
 
     // Found a solution
     {
-        LOCK(credits_mainState.cs_main);
+        LOCK(cs_main);
         if (pblock->hashPrevBlock != credits_chainActive.Tip()->GetBlockHash())
             return error("BitcreditMiner : generated block is stale");
 

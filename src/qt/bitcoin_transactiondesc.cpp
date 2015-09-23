@@ -20,7 +20,7 @@
 
 QString Bitcoin_TransactionDesc::FormatTxStatus(const Bitcoin_CWalletTx& wtx)
 {
-    AssertLockHeld(bitcoin_mainState.cs_main);
+    AssertLockHeld(cs_main);
     if (!Bitcoin_IsFinalTx(wtx, bitcoin_chainActive.Height() + 1))
     {
         if (wtx.nLockTime < BITCOIN_LOCKTIME_THRESHOLD)
@@ -46,7 +46,7 @@ QString Bitcoin_TransactionDesc::toHTML(Bitcoin_CWallet *wallet, Bitcoin_CWallet
 {
     QString strHTML;
 
-    LOCK2(bitcoin_mainState.cs_main, wallet->cs_wallet);
+    LOCK2(cs_main, wallet->cs_wallet);
     strHTML.reserve(4000);
     strHTML += "<html><font face='verdana, arial, helvetica, sans-serif'>";
 

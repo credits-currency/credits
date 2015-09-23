@@ -24,6 +24,8 @@
 #include <utility>
 #include <vector>
 
+#include <boost/filesystem.hpp>
+
 class CBlockFileInfo
 {
 public:
@@ -83,10 +85,135 @@ public:
      }
 };
 
-struct COrphanBlock {
+class COrphanBlock {
+public:
     uint256 hashBlock;
     uint256 hashPrev;
+    uint256 hashLinkedBitcoinBlock;
     vector<unsigned char> vchBlock;
+    bool fStoredInMemory;
+
+    void SetNull() {
+        hashBlock = 0;
+        hashPrev = 0;
+        hashLinkedBitcoinBlock = 0;
+        vchBlock.clear();
+        fStoredInMemory = false;
+    }
+
+    COrphanBlock() {
+        SetNull();
+    }
+};
+
+class COrphanIndex {
+public:
+	map<uint256, COrphanBlock*> mapOrphanBlocks;
+	multimap<uint256, COrphanBlock*> mapOrphanBlocksByPrev;
+	multimap<uint256, COrphanBlock*> mapOrphanBlocksByLinkedBitcoinBlock;
+	int nStoredInMemory;
+	std::string orphanDir;
+
+    void SetNull() {
+        mapOrphanBlocks.clear();
+        mapOrphanBlocksByPrev.clear();
+        mapOrphanBlocksByLinkedBitcoinBlock.clear();
+        nStoredInMemory = 0;
+    }
+
+    COrphanIndex(std::string orphanDirIn) {
+        SetNull();
+        orphanDir = orphanDirIn;
+    }
+
+    uint256 GetOrphanRoot(const uint256& hash) {
+        map<uint256, COrphanBlock*>::iterator it = mapOrphanBlocks.find(hash);
+        if (it == mapOrphanBlocks.end())
+            return hash;
+
+        // Work back to the first block in the orphan chain
+        do {
+            map<uint256, COrphanBlock*>::iterator it2 = mapOrphanBlocks.find(it->second->hashPrev);
+            if (it2 == mapOrphanBlocks.end())
+                return it->first;
+            it = it2;
+        } while(true);
+    }
+
+    //TODO - Can this be made in a more efficient manner?
+    void DeletePrevPartial(const uint256& hash, std::vector <COrphanBlock*> &deleteOrphans) {
+    	if(deleteOrphans.size() == 0 || mapOrphanBlocksByPrev.size() == 0) {
+    		return;
+    	}
+
+		typedef multimap<uint256, COrphanBlock*>::iterator multiIter;
+		for(unsigned int i = 0; i < deleteOrphans.size(); i++) {
+			const COrphanBlock * orphan = deleteOrphans[i];
+
+			std::pair<multiIter, multiIter> inneriterpair = mapOrphanBlocksByPrev.equal_range(hash); //
+			for (multiIter innerit = inneriterpair.first; innerit != inneriterpair.second; ++innerit) {
+				if (innerit->second == orphan) {
+					mapOrphanBlocksByPrev.erase(innerit);
+					break;
+				}
+			}
+		}
+	}
+
+    void RemoveOrpan(COrphanBlock * orphan) {
+    	if(mapOrphanBlocks.size() == 0) {
+    		return;
+    	}
+
+        const bool fStoredInMemory = orphan->fStoredInMemory;
+        const uint256 hash = orphan->hashBlock;
+        const uint256 hashLinkedBitcoinBlock = orphan->hashLinkedBitcoinBlock;
+        mapOrphanBlocks.erase(hash);
+        if(mapOrphanBlocksByLinkedBitcoinBlock.size() > 0) {
+			//Remove the specific orphan block from mapOrphanBlocksByLinkedBitcoinBlock
+        	typedef multimap<uint256, COrphanBlock*>::iterator multiIter;
+			std::pair<multiIter, multiIter> inneriterpair = mapOrphanBlocksByLinkedBitcoinBlock.equal_range(hashLinkedBitcoinBlock); //
+			for (multiIter innerit = inneriterpair.first; innerit != inneriterpair.second; ++innerit) {
+				if (innerit->second == orphan) {
+					mapOrphanBlocksByLinkedBitcoinBlock.erase(innerit);
+					break;
+				}
+			}
+        }
+        if(fStoredInMemory) {
+        	nStoredInMemory--;
+        } else {
+        	const std::string hashHex = hash.GetHex();
+        	const std::string lastTwo = hashHex.substr(hashHex.size() - 2);
+
+        	boost::filesystem::path removePath = GetTmpDataDir() / orphanDir / lastTwo / hashHex;
+            if(!boost::filesystem::remove(removePath)) {
+            	LogPrintf("ERROR: Couldn't remove orphaned block at %s\n", removePath);
+            }
+        }
+    }
+
+    void PruneOrphanBlocks(const int64_t &nMaxOrphansMemory, const int64_t &nMaxOrphansDisk) {
+        if (mapOrphanBlocksByPrev.size() <= (size_t)std::max((int64_t)0, nMaxOrphansMemory + nMaxOrphansDisk))
+            return;
+
+        // Pick a random orphan block.
+        int pos = insecure_rand() % mapOrphanBlocksByPrev.size();
+        std::multimap<uint256, COrphanBlock*>::iterator it = mapOrphanBlocksByPrev.begin();
+        while (pos--) it++;
+
+        // As long as this block has other orphans depending on it, move to one of those successors.
+        do {
+            std::multimap<uint256, COrphanBlock*>::iterator it2 = mapOrphanBlocksByPrev.find(it->second->hashBlock);
+            if (it2 == mapOrphanBlocksByPrev.end())
+                break;
+            it = it2;
+        } while(1);
+
+        mapOrphanBlocksByPrev.erase(it);
+        RemoveOrpan(it->second);
+        delete it->second;
+    }
 };
 
 //The following structs are used to keep track of state of CNodes
@@ -334,11 +461,9 @@ protected:
 
 class MainState {
 public:
-	CCriticalSection cs_main;
 	bool fImporting;
 	bool fReindex;
 
-    CCriticalSection cs_LastBlockFile;
     CBlockFileInfo infoLastBlockFile;
     int nLastBlockFile;
     int nTrimToTime;
@@ -351,5 +476,6 @@ public:
 };
 
 FILE* OpenDiskFile(const CDiskBlockPos &pos, const char *dir, const char *prefix, bool fReadOnly);
+FILE* OpenTmpDiskFile(const char *dir, const char *subdir, const char *filename, bool fReadOnly);
 
 #endif

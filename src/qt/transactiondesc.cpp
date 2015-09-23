@@ -20,7 +20,7 @@
 
 QString Credits_TransactionDesc::FormatTxStatus(const Credits_CWalletTx& wtx)
 {
-    AssertLockHeld(credits_mainState.cs_main);
+    AssertLockHeld(cs_main);
     if (!Credits_IsFinalTx(wtx, credits_chainActive.Height() + 1))
     {
         if (wtx.nLockTime < BITCREDIT_LOCKTIME_THRESHOLD)
@@ -46,7 +46,7 @@ QString Credits_TransactionDesc::toHTML(Credits_CWallet *keyholder_wallet, Credi
 {
     QString strHTML;
 
-    LOCK2(credits_mainState.cs_main, keyholder_wallet->cs_wallet);
+    LOCK2(cs_main, keyholder_wallet->cs_wallet);
     strHTML.reserve(4000);
     strHTML += "<html><font face='verdana, arial, helvetica, sans-serif'>";
 

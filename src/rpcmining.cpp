@@ -218,7 +218,7 @@ Value setgenerate(const Array& params, bool fHelp)
         int nHeight = 0;
         int nGenerate = (nGenProcLimit > 0 ? nGenProcLimit : 1);
         {   // Don't keep cs_main locked
-            LOCK(credits_mainState.cs_main);
+            LOCK(cs_main);
             nHeightStart = credits_chainActive.Height();
             nHeight = nHeightStart;
             nHeightEnd = nHeightStart+nGenerate;
@@ -233,7 +233,7 @@ Value setgenerate(const Array& params, bool fHelp)
             }
             MilliSleep(1);
             {   // Don't keep cs_main locked
-                LOCK(credits_mainState.cs_main);
+                LOCK(cs_main);
                 nHeight = credits_chainActive.Height();
             }
         }

@@ -608,7 +608,7 @@ bool Bitcoin_CWallet::AddToWalletIfInvolvingMe(const uint256 &hash, const Bitcoi
 
 void Bitcoin_CWallet::SyncTransaction(const uint256 &hash, const Bitcoin_CTransaction& tx, const Bitcoin_CBlock* pblock)
 {
-    LOCK2(bitcoin_mainState.cs_main, cs_wallet);
+    LOCK2(cs_main, cs_wallet);
     if (!AddToWalletIfInvolvingMe(hash, tx, pblock, true))
         return; // Not one of ours
 
@@ -971,7 +971,7 @@ int Bitcoin_CWallet::ScanForWalletTransactions(Bitcoin_CBlockIndex* pindexStart,
 
     Bitcoin_CBlockIndex* pindex = pindexStart;
     {
-        LOCK2(bitcoin_mainState.cs_main, cs_wallet);
+        LOCK2(cs_main, cs_wallet);
 
         // no need to read and scan block, if block was created before
         // our wallet birthday (as adjusted for block time variability)
@@ -1012,7 +1012,7 @@ int Bitcoin_CWallet::ScanForWalletTransactions(Bitcoin_CBlockIndex* pindexStart,
 
 void Bitcoin_CWallet::ReacceptWalletTransactions()
 {
-    LOCK2(bitcoin_mainState.cs_main, cs_wallet);
+    LOCK2(cs_main, cs_wallet);
     BOOST_FOREACH(PAIRTYPE(const uint256, Bitcoin_CWalletTx)& item, mapWallet)
     {
         const uint256& wtxid = item.first;
@@ -1106,7 +1106,7 @@ int64_t Bitcoin_CWallet::GetBalance(Credits_CCoinsViewCache* claim_view, map<uin
 {
     int64_t nTotal = 0;
     {
-        LOCK2(bitcoin_mainState.cs_main, cs_wallet);
+        LOCK2(cs_main, cs_wallet);
         for (map<uint256, Bitcoin_CWalletTx>::const_iterator it = mapWallet.begin(); it != mapWallet.end(); ++it)
         {
             const Bitcoin_CWalletTx* pcoin = &(*it).second;
@@ -1127,7 +1127,7 @@ int64_t Bitcoin_CWallet::GetUnconfirmedBalance(Credits_CCoinsViewCache* claim_vi
 {
     int64_t nTotal = 0;
     {
-        LOCK2(bitcoin_mainState.cs_main, cs_wallet);
+        LOCK2(cs_main, cs_wallet);
         for (map<uint256, Bitcoin_CWalletTx>::const_iterator it = mapWallet.begin(); it != mapWallet.end(); ++it)
         {
             const Bitcoin_CWalletTx* pcoin = &(*it).second;
@@ -1147,7 +1147,7 @@ int64_t Bitcoin_CWallet::GetImmatureBalance(Credits_CCoinsViewCache* claim_view,
 {
     int64_t nTotal = 0;
     {
-        LOCK2(bitcoin_mainState.cs_main, cs_wallet);
+        LOCK2(cs_main, cs_wallet);
         for (map<uint256, Bitcoin_CWalletTx>::const_iterator it = mapWallet.begin(); it != mapWallet.end(); ++it)
         {
             const Bitcoin_CWalletTx* pcoin = &(*it).second;
@@ -1427,7 +1427,7 @@ bool Bitcoin_CWallet::CreateTransaction(const vector<pair<CScript, int64_t> >& v
     wtxNew.BindWallet(this);
 
     {
-        LOCK2(bitcoin_mainState.cs_main, cs_wallet);
+        LOCK2(cs_main, cs_wallet);
         {
             nFeeRet = bitcoin_nTransactionFee;
             while (true)
@@ -1585,7 +1585,7 @@ bool Bitcoin_CWallet::CreateTransaction(CScript scriptPubKey, int64_t nValue,
 bool Bitcoin_CWallet::CommitTransaction(Bitcoin_CWalletTx& wtxNew, Bitcoin_CReserveKey& reservekey)
 {
     {
-        LOCK2(bitcoin_mainState.cs_main, cs_wallet);
+        LOCK2(cs_main, cs_wallet);
         LogPrintf("CommitTransaction:\n%s", wtxNew.ToString());
         {
             // This is only to keep the database open to defeat the auto-flush for the
@@ -2133,7 +2133,7 @@ void Bitcoin_CWallet::GetAllReserveKeys(set<CKeyID>& setAddress) const
 
     Bitcoin_CWalletDB walletdb(strWalletFile);
 
-    LOCK2(bitcoin_mainState.cs_main, cs_wallet);
+    LOCK2(cs_main, cs_wallet);
     BOOST_FOREACH(const int64_t& id, setKeyPool)
     {
     	CKeyPool keypool;

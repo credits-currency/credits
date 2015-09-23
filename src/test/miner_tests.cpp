@@ -65,7 +65,7 @@ BOOST_AUTO_TEST_CASE(CreateNewBlock_validity)
 //    CScript script;
 //    uint256 hash;
 //
-//    LOCK(credits_mainState.cs_main);
+//    LOCK(cs_main);
 //
 //    // Simple block creation, nothing special yet:
 //    BOOST_CHECK(pblocktemplate = CreateNewBlock(scriptPubKey, scriptPubKeyDeposit, pubkeySigningDeposit, tmpKeyStorePointer));

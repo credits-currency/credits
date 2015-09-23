@@ -110,7 +110,7 @@ Value bitcredit_importprivkey(const Array& params, bool fHelp)
     CPubKey pubkey = key.GetPubKey();
     CKeyID vchAddress = pubkey.GetID();
     {
-        LOCK2(credits_mainState.cs_main, bitcredit_pwalletMain->cs_wallet);
+        LOCK2(cs_main, bitcredit_pwalletMain->cs_wallet);
 
         bitcredit_pwalletMain->MarkDirty();
         bitcredit_pwalletMain->SetAddressBook(vchAddress, strLabel, "receive");
@@ -179,7 +179,7 @@ Value bitcoin_importprivkey(const Array& params, bool fHelp)
     CPubKey pubkey = key.GetPubKey();
     CKeyID vchAddress = pubkey.GetID();
     {
-        LOCK2(bitcoin_mainState.cs_main, bitcoin_pwalletMain->cs_wallet);
+        LOCK2(cs_main, bitcoin_pwalletMain->cs_wallet);
 
         bitcoin_pwalletMain->MarkDirty();
         bitcoin_pwalletMain->SetAddressBook(vchAddress, strLabel, "receive");

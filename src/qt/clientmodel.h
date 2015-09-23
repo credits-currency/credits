@@ -8,6 +8,7 @@
 #include <QObject>
 
 class CChain;
+class COrphanIndex;
 class MainState;
 class CNetParams;
 class Bitcredit_AddressTableModel;
@@ -44,7 +45,7 @@ class ClientModel : public QObject
     Q_OBJECT
 
 public:
-    explicit ClientModel(OptionsModel *optionsModel, QObject *parent, CNetParams * netParams, MainState& mainStateIn, CChain& chainActiveIn);
+    explicit ClientModel(OptionsModel *optionsModel, QObject *parent, CNetParams * netParams, MainState& mainStateIn, CChain& chainActiveIn, COrphanIndex& orphanIndexIn);
     ~ClientModel();
 
     OptionsModel *getOptionsModel();
@@ -54,6 +55,8 @@ public:
     int getNumConnections(unsigned int flags = CONNECTIONS_ALL) const;
     int getNumBlocks() const;
     int getNumBlocksAtStartup();
+    int getNumBlocksOrphanMemory() const;
+    int getNumBlocksOrphanDisk() const;
 
     quint64 getTotalBytesRecv() const;
     quint64 getTotalBytesSent() const;
@@ -86,6 +89,8 @@ private:
     PeerTableModel *peerTableModel;
 
     int cachedNumBlocks;
+    int cachedNumBlocksOrphanMemory;
+    int cachedNumBlocksOrphanDisk;
     bool cachedReindexing;
     bool cachedImporting;
 
@@ -95,6 +100,7 @@ private:
 
     MainState& mainState;
     CChain& chainActive;
+    COrphanIndex& orphanIndex;
 
     unsigned int nPrevNodeCount;
 
@@ -105,7 +111,7 @@ private:
 
 signals:
     void numConnectionsChanged(int count);
-    void numBlocksChanged(int count);
+    void numBlocksChanged(int numBlocks, int numBlocksOrphanMemory, int numBlocksOrphanDisk);
     void alertsChanged(const QString &warnings);
     void bytesChanged(quint64 totalBytesIn, quint64 totalBytesOut);
 

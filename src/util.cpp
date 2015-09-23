@@ -967,6 +967,11 @@ const boost::filesystem::path &GetDataDir(bool fNetSpecific)
     return path;
 }
 
+const boost::filesystem::path &GetTmpDataDir()
+{
+    return GetDataDir() / ".tmp";
+}
+
 void ClearDatadirCache()
 {
     std::fill(&pathCached[0], &pathCached[CChainParams::MAX_NETWORK_TYPES+1],

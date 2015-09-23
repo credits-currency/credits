@@ -52,8 +52,10 @@ static const unsigned int CREDITS_MAX_STANDARD_TX_SIZE = 100000;
 static const unsigned int BITCREDIT_MAX_BLOCK_SIGOPS = BITCREDIT_MAX_BLOCK_SIZE/50;
 /** The maximum number of orphan transactions kept in memory */
 static const unsigned int BITCREDIT_MAX_ORPHAN_TRANSACTIONS = BITCREDIT_MAX_BLOCK_SIZE/100;
-/** Default for -maxorphanblocks, maximum number of orphan blocks kept in memory */
-static const unsigned int BITCREDIT_DEFAULT_MAX_ORPHAN_BLOCKS = 750;
+/** Default for -maxorphanblocksmemory, maximum number of orphan blocks kept in memory */
+static const unsigned int BITCREDIT_DEFAULT_MAX_ORPHAN_BLOCKS_MEMORY = 200;
+/** Default for -maxorphanblocksdisk, maximum number of orphan blocks kept in memory */
+static const unsigned int BITCREDIT_DEFAULT_MAX_ORPHAN_BLOCKS_DISK = 50000;
 /** The maximum size of a blk?????.dat file (since 0.8) */
 static const unsigned int BITCREDIT_MAX_BLOCKFILE_SIZE = 0x8000000; // 128 MiB
 /** The pre-allocation chunk size for blk?????.dat files (since 0.8) */
@@ -105,6 +107,8 @@ static const unsigned char BITCREDIT_REJECT_INSUFFICIENTFEE = 0x42;
 static const unsigned char BITCREDIT_REJECT_CHECKPOINT = 0x43;
 static const unsigned char BITCREDIT_REJECT_INVALID_BITCOIN_BLOCK_LINK = 0x44;
 
+extern CCriticalSection cs_main;
+extern CCriticalSection cs_LastBlockFile;
 extern MainState credits_mainState;
 
 extern CScript BITCREDIT_COINBASE_FLAGS;
@@ -118,9 +122,6 @@ extern bool bitcredit_fBenchmark;
 extern int bitcredit_nScriptCheckThreads;
 extern bool bitcredit_fTxIndex;
 extern unsigned int bitcredit_nCoinCacheSize;
-
-// Minimum disk space required - used in CheckDiskSpace()
-static const uint64_t bitcredit_nMinDiskSpace = 52428800;
 
 
 class Credits_CBlockTreeDB;
@@ -147,10 +148,12 @@ void Bitcredit_UnregisterNodeSignals(CNodeSignals& nodeSignals);
 
 void Bitcredit_PushGetBlocks(CNode* pnode, Credits_CBlockIndex* pindexBegin, uint256 hashEnd);
 
+/** Used from init to re-read all the orphan info for Credits blocks **/
+bool Credits_IndexOrphansFromDisk();
+/** Once a bitcoin block has been received, process all credits orphans that references it */
+void Credits_ProcessBitcoinLinkedOprhans(vector<Bitcoin_CBlockIndex*> &processForBlocks);
 /** Process an incoming block */
 bool Bitcredit_ProcessBlock(CValidationState &state, CNode* pfrom, Credits_CBlock* pblock, CDiskBlockPos *dbp = NULL);
-/** Check whether enough disk space is available for an incoming block */
-bool Credits_CheckDiskSpace(uint64_t nAdditionalBytes = 0);
 /** Open a block file (blk?????.dat) */
 FILE* Credits_OpenBlockFile(const CDiskBlockPos &pos, bool fReadOnly = false);
 /** Open an undo file (rev?????.dat) */
@@ -484,8 +487,9 @@ bool Bitcredit_ConnectBlock(Credits_CBlock& block, CValidationState& state, Cred
 bool Bitcredit_AddToBlockIndex(Credits_CBlock& block, CValidationState& state, const CDiskBlockPos& pos);
 
 // Context-independent validity checks
-bool Bitcredit_CheckBlockHeader(const Credits_CBlockHeader& block, CValidationState& state, bool fCheckPOW = true);
-bool Bitcredit_CheckBlock(const Credits_CBlock& block, CValidationState& state, bool fCheckPOW = true, bool fCheckMerkleRoot = true);
+bool Credits_CheckLinkedBitcoinBlock(const Credits_CBlockHeader& block, CValidationState& state);
+bool Bitcredit_CheckBlockHeader(const Credits_CBlockHeader& block, CValidationState& state, bool fCheckPOW = true, bool fCheckLinkedBitcoinBlock = true);
+bool Bitcredit_CheckBlock(const Credits_CBlock& block, CValidationState& state, bool fCheckPOW = true, bool fCheckMerkleRoot = true, bool fCheckLinkedBitcoinBlock = true);
 
 // Store block on disk
 // if dbp is provided, the file is known to already reside on disk
@@ -810,6 +814,9 @@ extern Credits_CCoinsViewCache *credits_pcoinsTip;
 
 /** Global variable that points to the active block tree (protected by cs_main) */
 extern Credits_CBlockTreeDB *bitcredit_pblocktree;
+
+/** The index for orphan blocks currently stored in-memory or on disk. */
+extern COrphanIndex credits_orphanIndex;
 
 struct Credits_CBlockTemplate
 {
