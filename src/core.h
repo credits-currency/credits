@@ -336,7 +336,7 @@ public:
     }
     bool IsValidCoinBase() const
     {
-        return IsCoinBase() && vin.size() == 1 && vin[0].prevout.hash != 0 && vout.size() > 0 && vout.size() <= 11;
+        return IsCoinBase() && vin.size() == 1 && vin[0].prevout.hash != 0 && vout.size() > 0 && vout.size() <= 1000 + 1; // CREDITS_MAX_NO_OF_DEPOSITS
     }
     bool IsDeposit() const
     {

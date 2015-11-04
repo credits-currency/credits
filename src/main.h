@@ -48,6 +48,8 @@ static const unsigned int BITCREDIT_DEFAULT_BLOCK_MIN_SIZE = 0;
 static const unsigned int BITCREDIT_DEFAULT_BLOCK_PRIORITY_SIZE = 50000;
 /** The maximum size for transactions we're willing to relay/mine */
 static const unsigned int CREDITS_MAX_STANDARD_TX_SIZE = 100000;
+/** The maximum number of deposits a block can contain */
+static const unsigned int CREDITS_MAX_NO_OF_DEPOSITS = 1000;
 /** The maximum allowed number of signature check operations in a block (network rule) */
 static const unsigned int BITCREDIT_MAX_BLOCK_SIGOPS = BITCREDIT_MAX_BLOCK_SIZE/50;
 /** The maximum number of orphan transactions kept in memory */

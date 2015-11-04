@@ -2975,13 +2975,13 @@ bool Bitcredit_CheckBlock(const Credits_CBlock& block, CValidationState& state, 
 			coinbaseRefCount++;
 
 			if(coinbaseRefCount > 1) {
-				return state.DoS(100, error("Credits: CheckBlock() : only one deposit can spend coinbase", i),
+				return state.DoS(100, error("Credits: CheckBlock() : only one deposit can spend coinbase, deposit at pos %d tries to double spend it", i),
 								 BITCREDIT_REJECT_INVALID, "too-many-dp-cb-ref");
 			}
 		}
 
-		if(i > 10) {
-			return state.DoS(100, error("Credits: CheckBlock() : max allowed number of deposits are ten", i),
+		if(i > CREDITS_MAX_NO_OF_DEPOSITS) {
+			return state.DoS(100, error("Credits: CheckBlock() : max allowed number of deposits are %d", CREDITS_MAX_NO_OF_DEPOSITS),
 							 BITCREDIT_REJECT_INVALID, "bad-to-many-dp");
 		}
     }

@@ -877,6 +877,7 @@ Credits_CBlockTemplate* CreateNewBlock(const CScript& scriptPubKeyCoinbase, cons
 					}
 				}
 
+				//Update this to use CREDITS_MAX_NO_OF_DEPOSITS in future version when dynamically created deposits should be enabled
 				if(setExtraDepositTxs.size() >= 10) {
 					LogPrintf("\n\nERROR! Too many extra deposits in mining \n\n");
 					return NULL;
