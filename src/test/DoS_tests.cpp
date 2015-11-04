@@ -99,21 +99,22 @@ BOOST_AUTO_TEST_CASE(DoS_bantime)
     BOOST_CHECK(!CNode::IsBanned(addr));
 }
 
-static bool CheckNBits(unsigned int nbits1, int64_t time1, unsigned int nbits2, int64_t time2)\
+static bool CheckNBits(int nHeight, unsigned int nbits1, int64_t time1, unsigned int nbits2, int64_t time2)\
 {
     if (time1 > time2)
-        return CheckNBits(nbits2, time2, nbits1, time1);
+        return CheckNBits(nHeight, nbits2, time2, nbits1, time1);
     int64_t deltaTime = time2-time1;
 
     uint256 required;
-    required.SetCompact(Bitcredit_ComputeMinWork(nbits1, deltaTime));
+    required.SetCompact(Bitcredit_ComputeMinWork(nHeight, nbits1, deltaTime));
     uint256 have;
     have.SetCompact(nbits2);
     return (have <= required);
 }
 
-BOOST_AUTO_TEST_CASE(DoS_checknbits)
+BOOST_AUTO_TEST_CASE(DoS_checknbits_V1)
 {
+	int nHeight = 0;
     using namespace boost::assign; // for 'map_list_of()'
 
     // Timestamps,nBits from the bitcoin block chain.
@@ -131,7 +132,7 @@ BOOST_AUTO_TEST_CASE(DoS_checknbits)
     {
         BOOST_FOREACH(const BlockData::value_type& j, chainData)
         {
-            BOOST_CHECK(CheckNBits(i.second, i.first, j.second, j.first));
+            BOOST_CHECK(CheckNBits(nHeight, i.second, i.first, j.second, j.first));
         }
     }
 
@@ -141,11 +142,110 @@ BOOST_AUTO_TEST_CASE(DoS_checknbits)
 
     // First checkpoint difficulty at or a while after the last checkpoint time should fail when
     // compared to last checkpoint
-    BOOST_CHECK(!CheckNBits(firstcheck.second, lastcheck.first+60*10, lastcheck.second, lastcheck.first));
-    BOOST_CHECK(!CheckNBits(firstcheck.second, lastcheck.first+60*60*24*14, lastcheck.second, lastcheck.first));
+    BOOST_CHECK(!CheckNBits(nHeight, firstcheck.second, lastcheck.first+60*10, lastcheck.second, lastcheck.first));
+    BOOST_CHECK(!CheckNBits(nHeight, firstcheck.second, lastcheck.first+60*60*24*14, lastcheck.second, lastcheck.first));
 
     // ... but OK if enough time passed for difficulty to adjust downward:
-    BOOST_CHECK(CheckNBits(firstcheck.second, lastcheck.first+60*60*24*365*4, lastcheck.second, lastcheck.first));
+    BOOST_CHECK(CheckNBits(nHeight, firstcheck.second, lastcheck.first+60*60*24*365*4, lastcheck.second, lastcheck.first));
+
+    //Some default value testing
+    const unsigned int diffBefore = 0x0A00FFFF;
+    uint256 uint256DiffBefore;
+    uint256DiffBefore.SetCompact(diffBefore);
+    uint256 uint256DiffAfter;
+    int64_t timeRange;
+
+    timeRange = 14 * 24 * 60 * 60;
+    uint256DiffAfter = uint256DiffBefore * 3;
+    BOOST_CHECK(CheckNBits(nHeight, diffBefore, 0, uint256DiffAfter.GetCompact(), timeRange));
+    uint256DiffAfter = uint256DiffBefore * 5;
+    BOOST_CHECK(!CheckNBits(nHeight, diffBefore, 0, uint256DiffAfter.GetCompact(), timeRange));
+
+    timeRange = 14 * 24 * 60 * 60 * 2;
+    uint256DiffAfter = uint256DiffBefore * 3;
+    BOOST_CHECK(CheckNBits(nHeight, diffBefore, 0, uint256DiffAfter.GetCompact(), timeRange));
+    uint256DiffAfter = uint256DiffBefore * 5;
+    BOOST_CHECK(!CheckNBits(nHeight, diffBefore, 0, uint256DiffAfter.GetCompact(), timeRange));
+
+    timeRange = 14 * 24 * 60 * 60 * 4;
+    uint256DiffAfter = uint256DiffBefore * 3;
+    BOOST_CHECK(CheckNBits(nHeight, diffBefore, 0, uint256DiffAfter.GetCompact(), timeRange));
+    uint256DiffAfter = uint256DiffBefore * 5;
+    BOOST_CHECK(!CheckNBits(nHeight, diffBefore, 0, uint256DiffAfter.GetCompact(), timeRange));
+
+    timeRange = 14 * 24 * 60 * 60 * 4 + 1;
+    uint256DiffAfter = uint256DiffBefore * 15;
+    BOOST_CHECK(CheckNBits(nHeight, diffBefore, 0, uint256DiffAfter.GetCompact(), timeRange));
+    uint256DiffAfter = uint256DiffBefore * 17;
+    BOOST_CHECK(!CheckNBits(nHeight, diffBefore, 0, uint256DiffAfter.GetCompact(), timeRange));
+}
+
+BOOST_AUTO_TEST_CASE(DoS_checknbits_V2)
+{
+	int nHeight = 50000;
+    using namespace boost::assign; // for 'map_list_of()'
+
+    // Timestamps,nBits from the bitcoin block chain.
+    // These are the block-chain checkpoint blocks
+    typedef std::map<int64_t, unsigned int> BlockData;
+    BlockData chainData =
+        map_list_of(1239852051,486604799)(1262749024,486594666)
+        (1279305360,469854461)(1280200847,469830746)(1281678674,469809688)
+        (1296207707,453179945)(1302624061,453036989)(1309640330,437004818)
+        (1313172719,436789733);
+
+    // Make sure CheckNBits considers every combination of block-chain-lock-in-points
+    // "sane":
+    BOOST_FOREACH(const BlockData::value_type& i, chainData)
+    {
+        BOOST_FOREACH(const BlockData::value_type& j, chainData)
+        {
+            BOOST_CHECK(CheckNBits(nHeight, i.second, i.first, j.second, j.first));
+        }
+    }
+
+    // Test a couple of insane combinations:
+    BlockData::value_type firstcheck = *(chainData.begin());
+    BlockData::value_type lastcheck = *(chainData.rbegin());
+
+    // First checkpoint difficulty at or a while after the last checkpoint time should fail when
+    // compared to last checkpoint
+    BOOST_CHECK(!CheckNBits(nHeight, firstcheck.second, lastcheck.first+60*10, lastcheck.second, lastcheck.first));
+    BOOST_CHECK(!CheckNBits(nHeight, firstcheck.second, lastcheck.first+60*60*24*14, lastcheck.second, lastcheck.first));
+
+    // ... but OK if enough time passed for difficulty to adjust downward:
+    BOOST_CHECK(CheckNBits(nHeight, firstcheck.second, lastcheck.first+60*60*24*365*4, lastcheck.second, lastcheck.first));
+
+    //Some default value testing
+    const unsigned int diffBefore = 0x0A00FFFF;
+    uint256 uint256DiffBefore;
+    uint256DiffBefore.SetCompact(diffBefore);
+    uint256 uint256DiffAfter;
+    int64_t timeRange;
+
+    timeRange = (14 * 24 * 60 * 60) / 8;
+    uint256DiffAfter = uint256DiffBefore * 1;
+    BOOST_CHECK(CheckNBits(nHeight, diffBefore, 0, uint256DiffAfter.GetCompact(), timeRange));
+    uint256DiffAfter = uint256DiffBefore * 3;
+    BOOST_CHECK(!CheckNBits(nHeight, diffBefore, 0, uint256DiffAfter.GetCompact(), timeRange));
+
+    timeRange = ((14 * 24 * 60 * 60) / 8) * 2;
+    uint256DiffAfter = uint256DiffBefore * 1;
+    BOOST_CHECK(CheckNBits(nHeight, diffBefore, 0, uint256DiffAfter.GetCompact(), timeRange));
+    uint256DiffAfter = uint256DiffBefore * 3;
+    BOOST_CHECK(!CheckNBits(nHeight, diffBefore, 0, uint256DiffAfter.GetCompact(), timeRange));
+
+    timeRange = ((14 * 24 * 60 * 60) / 8) * 4;
+    uint256DiffAfter = uint256DiffBefore * 3;
+    BOOST_CHECK(CheckNBits(nHeight, diffBefore, 0, uint256DiffAfter.GetCompact(), timeRange));
+    uint256DiffAfter = uint256DiffBefore * 5;
+    BOOST_CHECK(!CheckNBits(nHeight, diffBefore, 0, uint256DiffAfter.GetCompact(), timeRange));
+
+    timeRange = (((14 * 24 * 60 * 60) / 8) * 4) + 1;
+    uint256DiffAfter = uint256DiffBefore * 7;
+    BOOST_CHECK(CheckNBits(nHeight, diffBefore, 0, uint256DiffAfter.GetCompact(), timeRange));
+    uint256DiffAfter = uint256DiffBefore * 9;
+    BOOST_CHECK(!CheckNBits(nHeight, diffBefore, 0, uint256DiffAfter.GetCompact(), timeRange));
 }
 
 Credits_CTransaction RandomOrphan()

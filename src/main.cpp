@@ -1329,37 +1329,51 @@ uint64_t Bitcredit_GetAllowedBlockSubsidy(const uint64_t nTotalMonetaryBase, uin
 	return nSubsidy;
 }
 
-static const int64_t bitcredit_nTargetTimespan = 14 * 24 * 60 * 60; // two weeks
-static const int64_t bitcredit_nTargetSpacing = 10 * 60;
-static const int64_t bitcredit_nInterval = bitcredit_nTargetTimespan / bitcredit_nTargetSpacing;
+static const int64_t bitcredit_nTargetTimespan_V1 = 14 * 24 * 60 * 60; // two weeks
+static const int64_t bitcredit_nTargetSpacing_V1 = 10 * 60;
+static const int64_t bitcredit_nInterval_V1 = bitcredit_nTargetTimespan_V1 / bitcredit_nTargetSpacing_V1;
+static const int64_t bitcredit_nMaxAdjustment_V1 = 4;
+
+static const int64_t bitcredit_nTargetTimespan_V2 = bitcredit_nTargetTimespan_V1 / 8; // approximately 1.75 days
+static const int64_t bitcredit_nTargetSpacing_V2 = 10 * 60;
+static const int64_t bitcredit_nInterval_V2 = bitcredit_nTargetTimespan_V2 / bitcredit_nTargetSpacing_V2;
+static const int64_t bitcredit_nMaxAdjustment_V2 = 2; // Combined with nTargetTimespan this will result in 64 times faster adjustments
 
 //
 // minimum amount of work that could possibly be required nTime after
 // minimum work required was nBase
 //
-unsigned int Bitcredit_ComputeMinWork(unsigned int nBase, int64_t nTime)
+unsigned int Bitcredit_Internal_ComputeMinWork(unsigned int nBase, int64_t nTime, const int64_t &nTargetTimespan, const int64_t &nTargetSpacing, const int64_t &nMaxAdjustment)
 {
     const uint256 &bnLimit = Credits_Params().ProofOfWorkLimit();
     // Testnet has min-difficulty blocks
     // after nTargetSpacing*2 time between blocks:
-    if (Bitcredit_TestNet() && nTime > bitcredit_nTargetSpacing*2)
+    if (Bitcredit_TestNet() && nTime > nTargetSpacing*2)
         return bnLimit.GetCompact();
 
     uint256 bnResult;
     bnResult.SetCompact(nBase);
     while (nTime > 0 && bnResult < bnLimit)
     {
-        // Maximum 400% adjustment...
-        bnResult *= 4;
-        // ... in best-case exactly 4-times-normal target time
-        nTime -= bitcredit_nTargetTimespan*4;
+        // Maximum nMaxAdjustment% adjustment...
+        bnResult *= nMaxAdjustment;
+        // ... in best-case exactly nMaxAdjustment-times-normal target time
+        nTime -= nTargetTimespan*nMaxAdjustment;
     }
     if (bnResult > bnLimit)
         bnResult = bnLimit;
     return bnResult.GetCompact();
 }
 
-unsigned int Bitcredit_GetNextWorkRequired(const Credits_CBlockIndex* pindexLast, const Credits_CBlockHeader *pblock)
+unsigned int Bitcredit_ComputeMinWork(int nHeight, unsigned int nBase, int64_t nTime) {
+	if(nHeight < CREDITS_DIFF_ALGO_V2_AT_CHAIN_HEIGHT) {
+		return Bitcredit_Internal_ComputeMinWork(nBase, nTime, bitcredit_nTargetTimespan_V1, bitcredit_nTargetSpacing_V1, bitcredit_nMaxAdjustment_V1);
+	} else {
+		return Bitcredit_Internal_ComputeMinWork(nBase, nTime, bitcredit_nTargetTimespan_V2, bitcredit_nTargetSpacing_V2, bitcredit_nMaxAdjustment_V2);
+	}
+}
+
+unsigned int Bitcredit_Internal_GetNextWorkRequired(const Credits_CBlockIndex* pindexLast, const Credits_CBlockHeader *pblock, const int64_t &nTargetTimespan, const int64_t &nTargetSpacing, const int64_t &nInterval, const int64_t &nMaxAdjustment)
 {
     unsigned int nProofOfWorkLimit = Credits_Params().ProofOfWorkLimit().GetCompact();
 
@@ -1368,20 +1382,20 @@ unsigned int Bitcredit_GetNextWorkRequired(const Credits_CBlockIndex* pindexLast
         return nProofOfWorkLimit;
 
     // Only change once per interval
-    if ((pindexLast->nHeight+1) % bitcredit_nInterval != 0)
+    if ((pindexLast->nHeight+1) % nInterval != 0)
     {
         if (Bitcredit_TestNet())
         {
             // Special difficulty rule for testnet:
             // If the new block's timestamp is more than 2* 10 minutes
             // then allow mining of a min-difficulty block.
-            if (pblock->nTime > pindexLast->nTime + bitcredit_nTargetSpacing*2)
+            if (pblock->nTime > pindexLast->nTime + nTargetSpacing*2)
                 return nProofOfWorkLimit;
             else
             {
                 // Return the last non-special-min-difficulty-rules-block
                 const CBlockIndexBase* pindex = pindexLast;
-                while (pindex->pprev && pindex->nHeight % bitcredit_nInterval != 0 && pindex->nBits == nProofOfWorkLimit)
+                while (pindex->pprev && pindex->nHeight % nInterval != 0 && pindex->nBits == nProofOfWorkLimit)
                     pindex = pindex->pprev;
                 return pindex->nBits;
             }
@@ -1389,19 +1403,19 @@ unsigned int Bitcredit_GetNextWorkRequired(const Credits_CBlockIndex* pindexLast
         return pindexLast->nBits;
     }
 
-    // Go back by what we want to be 14 days worth of blocks
+    // Go back by what we want to be x days worth of blocks
     const CBlockIndexBase* pindexFirst = pindexLast;
-    for (int i = 0; pindexFirst && i < bitcredit_nInterval-1; i++)
+    for (int i = 0; pindexFirst && i < nInterval-1; i++)
         pindexFirst = pindexFirst->pprev;
     assert(pindexFirst);
 
     // Limit adjustment step
     int64_t nActualTimespan = pindexLast->GetBlockTime() - pindexFirst->GetBlockTime();
     LogPrintf("Credits:   nActualTimespan = %d  before bounds\n", nActualTimespan);
-    if (nActualTimespan < bitcredit_nTargetTimespan/4)
-        nActualTimespan = bitcredit_nTargetTimespan/4;
-    if (nActualTimespan > bitcredit_nTargetTimespan*4)
-        nActualTimespan = bitcredit_nTargetTimespan*4;
+    if (nActualTimespan < nTargetTimespan/nMaxAdjustment)
+        nActualTimespan = nTargetTimespan/nMaxAdjustment;
+    if (nActualTimespan > nTargetTimespan*nMaxAdjustment)
+        nActualTimespan = nTargetTimespan*nMaxAdjustment;
 
     // Retarget
     uint256 bnNew;
@@ -1409,18 +1423,27 @@ unsigned int Bitcredit_GetNextWorkRequired(const Credits_CBlockIndex* pindexLast
     bnNew.SetCompact(pindexLast->nBits);
     bnOld = bnNew;
     bnNew *= nActualTimespan;
-    bnNew /= bitcredit_nTargetTimespan;
+    bnNew /= nTargetTimespan;
 
     if (bnNew > Credits_Params().ProofOfWorkLimit())
         bnNew = Credits_Params().ProofOfWorkLimit();
 
     /// debug print
     LogPrintf("Credits: GetNextWorkRequired RETARGET\n");
-    LogPrintf("Credits: nTargetTimespan = %d    nActualTimespan = %d\n", bitcredit_nTargetTimespan, nActualTimespan);
+    LogPrintf("Credits: nTargetTimespan = %d    nActualTimespan = %d\n", nTargetTimespan, nActualTimespan);
+    LogPrintf("Credits: nMaxAdjustment = %d\n", nMaxAdjustment);
     LogPrintf("Credits: Before: %08x  %s\n", pindexLast->nBits, bnOld.ToString());
     LogPrintf("Credits: After:  %08x  %s\n", bnNew.GetCompact(), bnNew.ToString());
 
     return bnNew.GetCompact();
+}
+
+unsigned int Bitcredit_GetNextWorkRequired(const Credits_CBlockIndex* pindexLast, const Credits_CBlockHeader *pblock) {
+	if(pindexLast->nHeight < CREDITS_DIFF_ALGO_V2_AT_CHAIN_HEIGHT) {
+		return Bitcredit_Internal_GetNextWorkRequired(pindexLast, pblock, bitcredit_nTargetTimespan_V1, bitcredit_nTargetSpacing_V1, bitcredit_nInterval_V1, bitcredit_nMaxAdjustment_V1);
+	} else {
+		return Bitcredit_Internal_GetNextWorkRequired(pindexLast, pblock, bitcredit_nTargetTimespan_V2, bitcredit_nTargetSpacing_V2, bitcredit_nInterval_V2, bitcredit_nMaxAdjustment_V2);
+	}
 }
 
 bool Bitcredit_CheckProofOfWork(uint256 hash, unsigned int nBits, uint64_t nTotalDepositBase, uint64_t nDepositAmount)
@@ -2921,7 +2944,7 @@ bool Bitcredit_CheckBlockHeader(const Credits_CBlockHeader& block, CValidationSt
         uint256 bnNewBlock;
         bnNewBlock.SetCompact(block.nBits, NULL, &fOverflow);
         uint256 bnRequired;
-        bnRequired.SetCompact(Bitcredit_ComputeMinWork(pcheckpoint->nBits, deltaTime));
+        bnRequired.SetCompact(Bitcredit_ComputeMinWork(pcheckpoint->nHeight, pcheckpoint->nBits, deltaTime));
         if (fOverflow || bnNewBlock > bnRequired)
         {
             return state.DoS(100, error("Credits: CheckBlockHeader() : block with too little proof-of-work"),

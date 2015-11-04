@@ -91,6 +91,8 @@ static const uint64_t BITCREDIT_EXPONENTIAL_DEPOSIT_ENFORCE_AT = 8160000 * COIN;
 /** The totalDepositBase level when a lowered reward will be enforced if deposit is not large enough.
  *  Up until this level the only thing a too low deposit will lead to is a higher difficulty. */
 static const int64_t BITCREDIT_ENFORCE_SUBSIDY_REDUCTION_AFTER = 15000000 * COIN;
+/** Blockchain height after which new faster diff adjustment algorithm will start to be used */
+static const int CREDITS_DIFF_ALGO_V2_AT_CHAIN_HEIGHT = 50000;
 
 #ifdef USE_UPNP
 static const int bitcredit_fHaveUPnP = true;
@@ -179,7 +181,7 @@ void Bitcredit_ThreadScriptCheck();
 /** Check whether a block hash satisfies the proof-of-work requirement specified by nBits */
 bool Bitcredit_CheckProofOfWork(uint256 hash, unsigned int nBits, uint64_t nTotalDepositBase, uint64_t nDepositAmount);
 /** Calculate the minimum amount of work a received block needs, without knowing its direct parent */
-unsigned int Bitcredit_ComputeMinWork(unsigned int nBase, int64_t nTime);
+unsigned int Bitcredit_ComputeMinWork(int nHeight, unsigned int nBase, int64_t nTime);
 /** Check whether we are doing an initial block download (synchronizing from disk or network) */
 bool Bitcredit_IsInitialBlockDownload();
 /** Format a string that describes several potential problems detected by the core */
