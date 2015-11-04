@@ -344,7 +344,7 @@ public:
     }
     bool IsValidDeposit() const
     {
-        return IsDeposit() && vin.size() == 1 && (vout.size() == 1 || vout.size() == 2);
+        return IsDeposit() && (vout.size() == 1 || vout.size() == 2);
     }
 
     bool IsClaim() const
