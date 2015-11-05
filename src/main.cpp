@@ -4022,7 +4022,8 @@ void static Bitcredit_ProcessGetData(CNode* pfrom)
                 {
                     // Send block from disk
                     Credits_CBlock block;
-                    Credits_ReadBlockFromDisk(block, (*mi).second);
+                    if (!Credits_ReadBlockFromDisk(block, (*mi).second))
+                        assert(!"cannot load block from disk");
                     if (inv.type == MSG_BLOCK)
                         pfrom->PushMessage("block", block);
                     else // MSG_FILTERED_BLOCK)
