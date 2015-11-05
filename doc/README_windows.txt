@@ -1,4 +1,4 @@
-Credits 0.9.99.0 BETA
+Credits 0.9.2.0 BETA
 
 Copyright (c) 2013-2015 Credits Core Developers
 
