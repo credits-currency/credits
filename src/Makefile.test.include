@@ -46,7 +46,7 @@ CREDITS_TESTS =\
   test/script_tests.cpp \
   test/serialize_tests.cpp \
   test/sigopcount_tests.cpp \
-  test/test_bitcoin.cpp \
+  test/test_credits.cpp \
   test/transaction_tests.cpp \
   test/uint256_tests.cpp \
   test/util_tests.cpp \
