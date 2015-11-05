@@ -373,7 +373,7 @@ std::string HelpMessage(HelpMessageMode hmm)
     strUsage += "                         " + _("If <category> is not supplied, output all debugging information.") + "\n";
     strUsage += "                         " + _("<category> can be:");
     strUsage +=                                 " addrman, alert, coindb, db, lock, rand, rpc, selectcoins, mempool, net"; // Don't translate these and qt below
-    if (hmm == HMM_BITCOIN_QT)
+    if (hmm == HMM_CREDITS_QT)
         strUsage += ", qt";
     strUsage += ".\n";
     strUsage += "  -gen                   " + _("Generate coins (default: 0)") + "\n";

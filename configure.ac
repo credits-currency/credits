@@ -508,7 +508,7 @@ AC_ARG_WITH([daemon],
   [build_creditsd=$withval],
   [build_creditsd=yes])
 
-BITCOIN_QT_INIT
+CREDITS_QT_INIT
 
 if test x$use_pkgconfig = xyes; then
 
@@ -522,9 +522,9 @@ if test x$use_pkgconfig = xyes; then
     [
       PKG_CHECK_MODULES([SSL], [libssl], [INCLUDES="$INCLUDES $SSL_CFLAGS"; LIBS="$LIBS $SSL_LIBS"], [AC_MSG_ERROR(openssl  not found.)])
       PKG_CHECK_MODULES([CRYPTO], [libcrypto], [INCLUDES="$INCLUDES $CRYPTO_CFLAGS"; LIBS="$LIBS $CRYPTO_LIBS"], [AC_MSG_ERROR(libcrypto  not found.)])
-      BITCOIN_QT_CHECK([PKG_CHECK_MODULES([PROTOBUF], [protobuf], [have_protobuf=yes], [BITCOIN_QT_FAIL(libprotobuf not found)])])
+      CREDITS_QT_CHECK([PKG_CHECK_MODULES([PROTOBUF], [protobuf], [have_protobuf=yes], [CREDITS_QT_FAIL(libprotobuf not found)])])
       if test x$use_qr != xno; then
-        BITCOIN_QT_CHECK([PKG_CHECK_MODULES([QR], [libqrencode], [have_qrencode=yes], [have_qrencode=no])])
+        CREDITS_QT_CHECK([PKG_CHECK_MODULES([QR], [libqrencode], [have_qrencode=yes], [have_qrencode=no])])
       fi
     ]
   )
@@ -535,14 +535,14 @@ else
   AC_CHECK_HEADER([openssl/ssl.h],, AC_MSG_ERROR(libssl headers missing),)
   AC_CHECK_LIB([ssl],         [main],, AC_MSG_ERROR(libssl missing))
 
-  BITCOIN_QT_CHECK(AC_CHECK_LIB([protobuf] ,[main],,BITCOIN_QT_FAIL(libprotobuf not found)))
+  CREDITS_QT_CHECK(AC_CHECK_LIB([protobuf] ,[main],,CREDITS_QT_FAIL(libprotobuf not found)))
   if test x$use_qr != xno; then
-    BITCOIN_QT_CHECK([AC_CHECK_LIB([qrencode], [main],, [have_qrencode=no])])
-    BITCOIN_QT_CHECK([AC_CHECK_HEADER([qrencode.h],, have_qrencode=no)])
+    CREDITS_QT_CHECK([AC_CHECK_LIB([qrencode], [main],, [have_qrencode=no])])
+    CREDITS_QT_CHECK([AC_CHECK_HEADER([qrencode.h],, have_qrencode=no)])
   fi
 fi
 
-BITCOIN_QT_PATH_PROGS([PROTOC], [protoc],$protoc_bin_path)
+CREDITS_QT_PATH_PROGS([PROTOC], [protoc],$protoc_bin_path)
 
 AC_MSG_CHECKING([whether to build creditsd])
 AM_CONDITIONAL([BUILD_BITCOIND], [test x$build_creditsd = xyes])
@@ -553,7 +553,7 @@ AM_CONDITIONAL([BUILD_BITCOIN_CLI], [test x$build_credits_cli = xyes])
 AC_MSG_RESULT($build_credits_cli)
 
 dnl sets $bitcredit_enable_qt, $bitcredit_enable_qt_test, $bitcredit_enable_qt_dbus
-BITCOIN_QT_CONFIGURE([$use_pkgconfig], [qt4])
+CREDITS_QT_CONFIGURE([$use_pkgconfig], [qt4])
 
 AC_LANG_POP
 
