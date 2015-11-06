@@ -83,8 +83,8 @@ public:
 class Bitcoin_CTransaction
 {
 public:
-    static int64_t nMinTxFee;
-    static int64_t nMinRelayTxFee;
+    static CFeeRate minTxFee;
+    static CFeeRate minRelayTxFee;
     static const int CURRENT_VERSION=1;
     int nVersion;
     std::vector<Bitcoin_CTxIn> vin;

@@ -16,7 +16,7 @@
 using namespace std;
 
 // Settings
-int64_t bitcoin_nTransactionFee = BITCOIN_DEFAULT_TRANSACTION_FEE;
+CFeeRate bitcoin_payTxFee(BITCOIN_DEFAULT_TRANSACTION_FEE);
 bool bitcoin_bSpendZeroConfChange = true;
 
 //////////////////////////////////////////////////////////////////////////////
@@ -1429,7 +1429,7 @@ bool Bitcoin_CWallet::CreateTransaction(const vector<pair<CScript, int64_t> >& v
     {
         LOCK2(cs_main, cs_wallet);
         {
-            nFeeRet = bitcoin_nTransactionFee;
+            nFeeRet = bitcoin_payTxFee.GetFeePerK();
             while (true)
             {
                 wtxNew.vin.clear();
@@ -1442,7 +1442,7 @@ bool Bitcoin_CWallet::CreateTransaction(const vector<pair<CScript, int64_t> >& v
                 BOOST_FOREACH (const PAIRTYPE(CScript, int64_t)& s, vecSend)
                 {
                 	CTxOut txout(s.second, s.first);
-                    if (txout.IsDust(Bitcoin_CTransaction::nMinRelayTxFee))
+                    if (txout.IsDust(Bitcoin_CTransaction::minRelayTxFee))
                     {
                         strFailReason = _("Transaction amount too small");
                         return false;
@@ -1471,16 +1471,6 @@ bool Bitcoin_CWallet::CreateTransaction(const vector<pair<CScript, int64_t> >& v
                 }
 
                 int64_t nChange = nValueIn - nValue - nFeeRet;
-                // The following if statement should be removed once enough miners
-                // have upgraded to the 0.9 GetMinFee() rules. Until then, this avoids
-                // creating free transactions that have change outputs less than
-                // CENT bitcoins.
-                if (nFeeRet < Bitcoin_CTransaction::nMinTxFee && nChange > 0 && nChange < CENT)
-                {
-                    int64_t nMoveToFee = min(nChange, Bitcoin_CTransaction::nMinTxFee - nFeeRet);
-                    nChange -= nMoveToFee;
-                    nFeeRet += nMoveToFee;
-                }
 
                 if (nChange > 0)
                 {
@@ -1516,7 +1506,7 @@ bool Bitcoin_CWallet::CreateTransaction(const vector<pair<CScript, int64_t> >& v
 
                     // Never create dust outputs; if we would, just
                     // add the dust to the fee.
-                    if (newTxOut.IsDust(Bitcoin_CTransaction::nMinRelayTxFee))
+                    if (newTxOut.IsDust(Bitcoin_CTransaction::minRelayTxFee))
                     {
                         nFeeRet += nChange;
                         reservekey.ReturnKey();
@@ -1555,7 +1545,7 @@ bool Bitcoin_CWallet::CreateTransaction(const vector<pair<CScript, int64_t> >& v
                 dPriority = wtxNew.ComputePriority(dPriority, nBytes);
 
                 // Check that enough fee is included
-                int64_t nPayFee = bitcoin_nTransactionFee * (1 + (int64_t)nBytes / 1000);
+				int64_t nPayFee = bitcoin_payTxFee.GetFee(nBytes);
                 bool fAllowFree = Bitcoin_AllowFree(dPriority);
                 int64_t nMinFee = Bitcoin_GetMinFee(wtxNew, nBytes, fAllowFree, GMF_SEND);
                 if (nFeeRet < max(nPayFee, nMinFee))
@@ -1667,7 +1657,7 @@ string Bitcoin_CWallet::SendMoneyToDestination(const CTxDestination& address, in
         return _("Invalid amount");
 
     map<uint256, set<int> > mapEmptyTxInPoints;
-    if (nValue + bitcoin_nTransactionFee > GetBalance(NULL, mapEmptyTxInPoints))
+    if (nValue > GetBalance(NULL, mapEmptyTxInPoints))
         return _("Insufficient funds");
 
     // Parse Bitcoin address

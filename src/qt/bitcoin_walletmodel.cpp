@@ -239,12 +239,6 @@ Bitcoin_WalletModel::SendCoinsReturn Bitcoin_WalletModel::prepareTransaction(Bit
         return AmountExceedsBalance;
     }
 
-    if((total + bitcoin_nTransactionFee) > nBalance)
-    {
-        transaction.setTransactionFee(bitcoin_nTransactionFee);
-        return SendCoinsReturn(AmountWithFeeExceedsBalance);
-    }
-
     {
         LOCK2(cs_main, wallet->cs_wallet);
 

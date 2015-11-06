@@ -386,9 +386,9 @@ std::string HelpMessage(HelpMessageMode hmm)
         strUsage += "  -limitfreerelay=<n>    " + _("Continuously rate-limit free transactions to <n>*1000 bytes per minute (default:15)") + "\n";
         strUsage += "  -maxsigcachesize=<n>   " + _("Limit size of signature cache to <n> entries (default: 50000)") + "\n";
     }
-    strUsage += "  -mintxfee=<amt>        " + _("Fees smaller than this are considered zero fee (for transaction creation) (default:") + " " + FormatMoney(Credits_CTransaction::nMinTxFee) + ")" + "\n";
+    strUsage += "  -mintxfee=<amt>        " + _("Fees smaller than this are considered zero fee (for transaction creation) (default:") + " " + FormatMoney(Credits_CTransaction::minTxFee.GetFeePerK()) + ")" + "\n";
     strUsage += "  -bitcoin_mintxfee=<amt>   " + _("Same as above, for bitcoin") + "\n";
-    strUsage += "  -minrelaytxfee=<amt>   " + _("Fees smaller than this are considered zero fee (for relaying) (default:") + " " + FormatMoney(Credits_CTransaction::nMinRelayTxFee) + ")" + "\n";
+    strUsage += "  -minrelaytxfee=<amt>   " + _("Fees smaller than this are considered zero fee (for relaying) (default:") + " " + FormatMoney(Credits_CTransaction::minRelayTxFee.GetFeePerK()) + ")" + "\n";
     strUsage += "  -bitcoin_minrelaytxfee=<amt>   " + _("Same as above, for bitcoin") + "\n";
     strUsage += "  -printtoconsole        " + _("Send trace/debug info to console instead of debug.log file") + "\n";
     if (GetBoolArg("-help-debug", false))
@@ -1084,7 +1084,7 @@ bool Bitcredit_AppInit2(boost::thread_group& threadGroup) {
     {
         int64_t n = 0;
         if (ParseMoney(mapArgs["-bitcoin_mintxfee"], n) && n > 0)
-            Bitcoin_CTransaction::nMinTxFee = n;
+            Bitcoin_CTransaction::minTxFee = CFeeRate(n);
         else
             return InitError(strprintf(_("Invalid amount for -bitcoin_mintxfee=<amount>: '%s'"), mapArgs["-bitcoin_mintxfee"]));
     }
@@ -1092,7 +1092,7 @@ bool Bitcredit_AppInit2(boost::thread_group& threadGroup) {
     {
         int64_t n = 0;
         if (ParseMoney(mapArgs["-mintxfee"], n) && n > 0)
-            Credits_CTransaction::nMinTxFee = n;
+            Credits_CTransaction::minTxFee = CFeeRate(n);
         else
             return InitError(strprintf(_("Invalid amount for -mintxfee=<amount>: '%s'"), mapArgs["-mintxfee"]));
     }
@@ -1101,7 +1101,7 @@ bool Bitcredit_AppInit2(boost::thread_group& threadGroup) {
     {
         int64_t n = 0;
         if (ParseMoney(mapArgs["-bitcoin_minrelaytxfee"], n) && n > 0)
-            Bitcoin_CTransaction::nMinRelayTxFee = n;
+            Bitcoin_CTransaction::minRelayTxFee = CFeeRate(n);
         else
             return InitError(strprintf(_("Invalid amount for -bitcoin_minrelaytxfee=<amount>: '%s'"), mapArgs["-bitcoin_minrelaytxfee"]));
     }
@@ -1109,7 +1109,7 @@ bool Bitcredit_AppInit2(boost::thread_group& threadGroup) {
     {
         int64_t n = 0;
         if (ParseMoney(mapArgs["-minrelaytxfee"], n) && n > 0)
-            Credits_CTransaction::nMinRelayTxFee = n;
+            Credits_CTransaction::minRelayTxFee = CFeeRate(n);
         else
             return InitError(strprintf(_("Invalid amount for -minrelaytxfee=<amount>: '%s'"), mapArgs["-minrelaytxfee"]));
     }
@@ -1117,10 +1117,12 @@ bool Bitcredit_AppInit2(boost::thread_group& threadGroup) {
 #ifdef ENABLE_WALLET
     if (mapArgs.count("-bitcoin_paytxfee"))
     {
-        if (!ParseMoney(mapArgs["-bitcoin_paytxfee"], bitcoin_nTransactionFee))
+        int64_t nFeePerK = 0;
+        if (!ParseMoney(mapArgs["-bitcoin_paytxfee"], nFeePerK))
             return InitError(strprintf(_("Invalid amount for -bitcoin_paytxfee=<amount>: '%s'"), mapArgs["-bitcoin_paytxfee"]));
-        if (bitcoin_nTransactionFee > bitcoin_nHighTransactionFeeWarning)
+        if (nFeePerK > bitcoin_nHighTransactionFeeWarning)
             InitWarning(_("Warning: -bitcoin_paytxfee is set very high! This is the transaction fee you will pay if you send a transaction."));
+        bitcoin_payTxFee = CFeeRate(nFeePerK, 1000);
     }
     bitcoin_bSpendZeroConfChange = GetArg("-bitcoin_spendzeroconfchange", true);
 
@@ -1129,10 +1131,12 @@ bool Bitcredit_AppInit2(boost::thread_group& threadGroup) {
 #ifdef ENABLE_WALLET
     if (mapArgs.count("-paytxfee"))
     {
-        if (!ParseMoney(mapArgs["-paytxfee"], credits_nTransactionFee))
+        int64_t nFeePerK = 0;
+        if (!ParseMoney(mapArgs["-paytxfee"], nFeePerK))
             return InitError(strprintf(_("Invalid amount for -paytxfee=<amount>: '%s'"), mapArgs["-paytxfee"]));
-        if (credits_nTransactionFee > credits_nHighTransactionFeeWarning)
+        if (nFeePerK > credits_nHighTransactionFeeWarning)
             InitWarning(_("Warning: -paytxfee is set very high! This is the transaction fee you will pay if you send a transaction."));
+        credits_payTxFee = CFeeRate(nFeePerK, 1000);
     }
     credits_bSpendZeroConfChange = GetArg("-spendzeroconfchange", true);
 

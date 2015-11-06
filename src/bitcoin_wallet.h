@@ -25,7 +25,7 @@
 #include <vector>
 
 // Settings
-extern int64_t bitcoin_nTransactionFee;
+extern CFeeRate bitcoin_payTxFee;
 extern bool bitcoin_bSpendZeroConfChange;
 
 // -bitcoin_paytxfee default

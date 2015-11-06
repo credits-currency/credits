@@ -2873,7 +2873,7 @@ Value settxfee(const Array& params, bool fHelp)
     if (params[0].get_real() != 0.0)
         nAmount = Credits_AmountFromValue(params[0]);        // rejects 0.0 amounts
 
-    credits_nTransactionFee = nAmount;
+    credits_payTxFee = CFeeRate(nAmount, 1000);
     return true;
 }
 

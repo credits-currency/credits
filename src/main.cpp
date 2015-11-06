@@ -53,9 +53,9 @@ bool bitcredit_fTxIndex = false;
 unsigned int bitcredit_nCoinCacheSize = 5000;
 
 /** Fees smaller than this (in satoshi) are considered zero fee (for transaction creation) */
-int64_t Credits_CTransaction::nMinTxFee = 10000;  // Override with -mintxfee
+CFeeRate Credits_CTransaction::minTxFee = CFeeRate(10000);  // Override with -mintxfee
 /** Fees smaller than this (in satoshi) are considered zero fee (for relaying and mining) */
-int64_t Credits_CTransaction::nMinRelayTxFee = 1000;
+CFeeRate Credits_CTransaction::minRelayTxFee = CFeeRate(1000);
 
 COrphanIndex credits_orphanIndex("credits_orphans");
 
@@ -493,7 +493,7 @@ bool Bitcredit_IsStandardTx(const Credits_CTransaction& tx, string& reason)
         }
         if (whichType == TX_NULL_DATA)
             nDataOut++;
-        else if (txout.IsDust(Credits_CTransaction::nMinRelayTxFee)) {
+        else if (txout.IsDust(Credits_CTransaction::minRelayTxFee)) {
             reason = "dust";
             return false;
         }
@@ -743,10 +743,10 @@ bool Bitcredit_CheckTransaction(const Credits_CTransaction& tx, CValidationState
 
 int64_t Credits_GetMinFee(const Credits_CTransaction& tx, unsigned int nBytes, bool fAllowFree, enum GetMinFee_mode mode)
 {
-    // Base fee is either nMinTxFee or nMinRelayTxFee
-    int64_t nBaseFee = (mode == GMF_RELAY) ? tx.nMinRelayTxFee : tx.nMinTxFee;
+    // Base fee is either minTxFee or minRelayTxFee
+    CFeeRate baseFeeRate = (mode == GMF_RELAY) ? tx.minRelayTxFee : tx.minTxFee;
 
-    int64_t nMinFee = (1 + (int64_t)nBytes / 1000) * nBaseFee;
+    int64_t nMinFee = baseFeeRate.GetFee(nBytes);
 
     if (fAllowFree)
     {
@@ -758,16 +758,6 @@ int64_t Credits_GetMinFee(const Credits_CTransaction& tx, unsigned int nBytes, b
         //   to be considered safe and assume they can likely make it into this section.
         if (nBytes < (mode == GMF_SEND ? 1000 : (BITCREDIT_DEFAULT_BLOCK_PRIORITY_SIZE - 1000)))
             nMinFee = 0;
-    }
-
-    // This code can be removed after enough miners have upgraded to version 0.9.
-    // Until then, be safe when sending and require a fee if any output
-    // is less than CENT:
-    if (nMinFee < nBaseFee && mode == GMF_SEND)
-    {
-        BOOST_FOREACH(const CTxOut& txout, tx.vout)
-            if (txout.nValue < CENT)
-                nMinFee = nBaseFee;
     }
 
     if (!Credits_MoneyRange(nMinFee))
@@ -918,10 +908,10 @@ bool Bitcredit_AcceptToMemoryPool(Bitcredit_CTxMemPool& pool, CValidationState &
                                       hash.ToString(), nFees, txMinFee),
                              BITCREDIT_REJECT_INSUFFICIENTFEE, "insufficient fee");
 
-        // Continuously rate-limit free transactions
+        // Continuously rate-limit free (really, very-low-fee)transactions
         // This mitigates 'penny-flooding' -- sending thousands of free transactions just to
         // be annoying or make others' transactions take longer to confirm.
-        if (fLimitFree && nFees < Credits_CTransaction::nMinRelayTxFee)
+        if (fLimitFree && nFees < Credits_CTransaction::minRelayTxFee.GetFee(nSize))
         {
             static CCriticalSection csFreeLimiter;
             static double dFreeCount;
@@ -942,10 +932,10 @@ bool Bitcredit_AcceptToMemoryPool(Bitcredit_CTxMemPool& pool, CValidationState &
             dFreeCount += nSize;
         }
 
-        if (fRejectInsaneFee && nFees > Credits_CTransaction::nMinRelayTxFee * 10000)
+        if (fRejectInsaneFee && nFees > Credits_CTransaction::minRelayTxFee.GetFee(nSize) * 10000)
             return error("Credits: AcceptToMemoryPool: : insane fees %s, %d > %d",
                          hash.ToString(),
-                         nFees, Credits_CTransaction::nMinRelayTxFee * 10000);
+                         nFees, Credits_CTransaction::minRelayTxFee.GetFee(nSize) * 10000);
 
         int64_t nClaimCoins = 0;
         // Check against previous transactions

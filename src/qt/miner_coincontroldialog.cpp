@@ -401,7 +401,7 @@ void Miner_CoinControlDialog::updateLabels(Bitcredit_WalletModel *model, QDialog
 
             CTxOut txout(amount, (CScript)vector<unsigned char>(24, 0));
             txDummy.vout.push_back(txout);
-            if (txout.IsDust(Credits_CTransaction::nMinRelayTxFee))
+            if (txout.IsDust(Credits_CTransaction::minRelayTxFee))
                fDust = true;
         }
     }
@@ -473,7 +473,7 @@ void Miner_CoinControlDialog::updateLabels(Bitcredit_WalletModel *model, QDialog
         sPriorityLabel = Miner_CoinControlDialog::getPriorityLabel(dPriority);
 
         // Fee
-        int64_t nFee = credits_nTransactionFee * (1 + (int64_t)nBytes / 1000);
+        int64_t nFee = credits_payTxFee.GetFee(nBytes);
 
         // Min Fee
         int64_t nMinFee = Credits_GetMinFee(txDummy, nBytes, Credits_AllowFree(dPriority), GMF_SEND);
@@ -484,26 +484,11 @@ void Miner_CoinControlDialog::updateLabels(Bitcredit_WalletModel *model, QDialog
         {
             nChange = nAmount - nPayFee - nPayAmount;
 
-            // if sub-cent change is required, the fee must be raised to at least Credits_CTransaction::nMinTxFee
-            if (nPayFee < Credits_CTransaction::nMinTxFee && nChange > 0 && nChange < CENT)
-            {
-                if (nChange < Credits_CTransaction::nMinTxFee) // change < 0.0001 => simply move all change to fees
-                {
-                    nPayFee += nChange;
-                    nChange = 0;
-                }
-                else
-                {
-                    nChange = nChange + nPayFee - Credits_CTransaction::nMinTxFee;
-                    nPayFee = Credits_CTransaction::nMinTxFee;
-                }
-            }
-
             // Never create dust outputs; if we would, just add the dust to the fee.
             if (nChange > 0 && nChange < CENT)
             {
                 CTxOut txout(nChange, (CScript)vector<unsigned char>(24, 0));
-                if (txout.IsDust(Credits_CTransaction::nMinRelayTxFee))
+                if (txout.IsDust(Credits_CTransaction::minRelayTxFee))
                 {
                     nPayFee += nChange;
                     nChange = 0;
