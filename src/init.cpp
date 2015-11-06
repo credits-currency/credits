@@ -157,7 +157,7 @@ void Shutdown()
     boost::filesystem::path credits_est_path = GetDataDir() / CREDITS_FEE_ESTIMATES_FILENAME;
     CAutoFile credits_est_fileout = CAutoFile(fopen(credits_est_path.string().c_str(), "wb"), SER_DISK, Credits_Params().ClientVersion());
     if (credits_est_fileout)
-        credits_mempool.WriteFeeEstimates(credits_est_fileout);
+        credits_mempool.WriteFeeEstimates(credits_est_fileout, Credits_Params().ClientVersion());
     else
         LogPrintf("Credits: failed to write fee estimates");
 
@@ -219,7 +219,7 @@ void Shutdown()
     boost::filesystem::path bitcoin_est_path = GetDataDir() / BITCOIN_FEE_ESTIMATES_FILENAME;
     CAutoFile bitcoin_est_fileout = CAutoFile(fopen(bitcoin_est_path.string().c_str(), "wb"), SER_DISK, Bitcoin_Params().ClientVersion());
     if (bitcoin_est_fileout)
-        bitcoin_mempool.WriteFeeEstimates(bitcoin_est_fileout);
+        bitcoin_mempool.WriteFeeEstimates(bitcoin_est_fileout, Bitcoin_Params().ClientVersion());
     else
         LogPrintf("failed to write fee estimates");
 
@@ -1487,12 +1487,12 @@ bool Bitcredit_AppInit2(boost::thread_group& threadGroup) {
     boost::filesystem::path credits_est_path = GetDataDir() / CREDITS_FEE_ESTIMATES_FILENAME;
     CAutoFile credits_est_filein = CAutoFile(fopen(credits_est_path.string().c_str(), "rb"), SER_DISK, Credits_Params().ClientVersion());
     if (credits_est_filein)
-        credits_mempool.ReadFeeEstimates(credits_est_filein);
+        credits_mempool.ReadFeeEstimates(credits_est_filein, Credits_Params().ClientVersion());
 
     boost::filesystem::path bitcoin_est_path = GetDataDir() / BITCOIN_FEE_ESTIMATES_FILENAME;
     CAutoFile bitcoin_est_filein = CAutoFile(fopen(bitcoin_est_path.string().c_str(), "rb"), SER_DISK, Bitcoin_Params().ClientVersion());
     if (bitcoin_est_filein)
-        bitcoin_mempool.ReadFeeEstimates(bitcoin_est_filein);
+        bitcoin_mempool.ReadFeeEstimates(bitcoin_est_filein, Bitcoin_Params().ClientVersion());
 
     // ********************************************************* Step 8: load wallet
 #ifdef ENABLE_WALLET

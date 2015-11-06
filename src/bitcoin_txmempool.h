@@ -9,6 +9,7 @@
 
 #include "bitcoin_coins.h"
 #include "bitcoin_core.h"
+
 #include "sync.h"
 
 inline bool Bitcoin_AllowFree(double dPriority)
@@ -117,8 +118,8 @@ public:
     // nBlocks
     double estimatePriority(int nBlocks) const;
     // Write/Read estimates to disk
-    bool WriteFeeEstimates(CAutoFile& fileout) const;
-    bool ReadFeeEstimates(CAutoFile& filein);
+    bool WriteFeeEstimates(CAutoFile& fileout, const int &clientVersion) const;
+    bool ReadFeeEstimates(CAutoFile& filein, const int &clientVersion);
 };
 
 /** Bitcoin_CCoinsView that brings transactions from a memorypool into view.

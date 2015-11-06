@@ -530,12 +530,12 @@ double Bitcoin_CTxMemPool::estimatePriority(int nBlocks) const
 }
 
 bool
-Bitcoin_CTxMemPool::WriteFeeEstimates(CAutoFile& fileout) const
+Bitcoin_CTxMemPool::WriteFeeEstimates(CAutoFile& fileout, const int &clientVersion) const
 {
     try {
         LOCK(cs);
         fileout << 99900; // version required to read: 0.9.99 or later
-        fileout << Bitcoin_Params().ClientVersion(); // version that wrote the file
+        fileout << clientVersion; // version that wrote the file
         minerPolicyEstimator->Write(fileout);
     }
     catch (std::exception &e) {
@@ -546,12 +546,12 @@ Bitcoin_CTxMemPool::WriteFeeEstimates(CAutoFile& fileout) const
 }
 
 bool
-Bitcoin_CTxMemPool::ReadFeeEstimates(CAutoFile& filein)
+Bitcoin_CTxMemPool::ReadFeeEstimates(CAutoFile& filein, const int &clientVersion)
 {
     try {
         int nVersionRequired, nVersionThatWrote;
         filein >> nVersionRequired >> nVersionThatWrote;
-        if (nVersionRequired > Bitcoin_Params().ClientVersion())
+        if (nVersionRequired > clientVersion)
             return error("CTxMemPool::ReadFeeEstimates() : up-version (%d) fee estimate file", nVersionRequired);
 
         LOCK(cs);

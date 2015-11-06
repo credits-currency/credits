@@ -534,12 +534,12 @@ double Bitcredit_CTxMemPool::estimatePriority(int nBlocks) const
 }
 
 bool
-Bitcredit_CTxMemPool::WriteFeeEstimates(CAutoFile& fileout) const
+Bitcredit_CTxMemPool::WriteFeeEstimates(CAutoFile& fileout, const int &clientVersion) const
 {
     try {
         LOCK(cs);
         fileout << 99900; // version required to read: 0.9.99 or later
-        fileout << CREDITS_CLIENT_VERSION; // version that wrote the file
+        fileout << clientVersion; // version that wrote the file
         minerPolicyEstimator->Write(fileout);
     }
     catch (std::exception &e) {
@@ -550,12 +550,12 @@ Bitcredit_CTxMemPool::WriteFeeEstimates(CAutoFile& fileout) const
 }
 
 bool
-Bitcredit_CTxMemPool::ReadFeeEstimates(CAutoFile& filein)
+Bitcredit_CTxMemPool::ReadFeeEstimates(CAutoFile& filein, const int &clientVersion)
 {
     try {
         int nVersionRequired, nVersionThatWrote;
         filein >> nVersionRequired >> nVersionThatWrote;
-        if (nVersionRequired > CREDITS_CLIENT_VERSION)
+        if (nVersionRequired > clientVersion)
             return error("CTxMemPool::ReadFeeEstimates() : up-version (%d) fee estimate file", nVersionRequired);
 
         LOCK(cs);
