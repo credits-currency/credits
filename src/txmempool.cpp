@@ -150,7 +150,7 @@ private:
         // We need to guess why the transaction was included in a block-- either
         // because it is high-priority or because it has sufficient fees.
         bool sufficientFee = (feeRate > Credits_CTransaction::minRelayTxFee);
-        bool sufficientPriority = AllowFree(dPriority);
+        bool sufficientPriority = Credits_AllowFree(dPriority);
         const char* assignedTo = "unassigned";
         if (sufficientFee && !sufficientPriority)
         {

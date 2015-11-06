@@ -11,7 +11,7 @@
 #include "bitcoin_core.h"
 #include "sync.h"
 
-inline bool AllowFree(double dPriority)
+inline bool Bitcoin_AllowFree(double dPriority)
 {
     // Large (in bytes) low-priority (new, small-coin) transactions
     // need a fee.
