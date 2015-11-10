@@ -223,7 +223,7 @@ Bitcoin_CMainParams::Bitcoin_CMainParams() {
     //Hardcoded linkage to bitcoin "real" version
     nClientVersion = 1000000 * 	0
     							+ 10000 * 	9
-    							+ 100 * 		1
+    							+ 100 * 		2
     							+ 1 * 			0;
     nAcceptDepthLinkedBitcoinBlock = 10000;
     nDepositLockDepth = 15000;
