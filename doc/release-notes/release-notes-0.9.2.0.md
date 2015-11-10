@@ -1,4 +1,4 @@
-Credits Core version 0.9.1.80 is now available from:
+Credits Core version 0.9.2.0 is now available from:
 
   http://credits-currency.org
 
@@ -30,10 +30,10 @@ a) Sync the blockchain from start or
 b) Initialize from the torrent file that can be found at http://credits-currency.org/viewtopic.php?f=18&t=517.
 NOTE!!!!
 
-0.9.1.80 Release notes
+0.9.2.0 Release notes
 =======================
 
-0.9.1.80 is a minor release, no updates to the working directory is neccessary when installing.
+0.9.2.0 is a major release. However, no updates to the working directory are neccessary when installing.
 - NOTE!! Hard fork will occur at block 50000.
 - Version number bumped to .80 to indicate hard fork version
 - Deposit transactions will be allowed to have more than one input. This will enable the wallet (in the release after this one) to automatically create deposits from any content that you have in a wallet.
@@ -41,4 +41,6 @@ NOTE!!!!
 - Changed difficulty adjustment algorithm at block 50 000. The new diff adjustment algorithm will be much faster. It will update every 252 blocks with a max adjustment factor of 2 up or down. Adjustment speed will be 64 times higher than current diff adjustment. The reason for this is twofold:
    1. To prevent block generation from being stuck if a sudden drop in mining power occurs. 
    2. In the future when deposit mining will be more and more important, preventing the block generation from being stuck if deposits are being withheld.
+- Several updates from bitcoin main branch included into release, to bump version to 0.9.2.x
+- Among the updates from bitcoin main branch is estimatefee/estimatepriority functionality
    
