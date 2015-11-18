@@ -514,7 +514,7 @@ WId BitcreditApplication::getMainWinId() const
     return window->winId();
 }
 
-#ifndef BITCOIN_QT_TEST
+#ifndef CREDITS_QT_TEST
 int main(int argc, char *argv[])
 {
     SetupEnvironment();
@@ -676,4 +676,4 @@ int main(int argc, char *argv[])
     }
     return app.getReturnValue();
 }
-#endif // BITCOIN_QT_TEST
+#endif // CREDITS_QT_TEST

@@ -17,7 +17,7 @@
 using namespace std;
 
 // Settings
-int64_t credits_nTransactionFee = CREDITS_DEFAULT_TRANSACTION_FEE;
+CFeeRate credits_payTxFee(CREDITS_DEFAULT_TRANSACTION_FEE);
 bool credits_bSpendZeroConfChange = true;
 
 //////////////////////////////////////////////////////////////////////////////
@@ -1357,7 +1357,7 @@ bool Credits_CWallet::CreateTransaction(Credits_CWallet *deposit_wallet, const v
     {
         LOCK2(cs_main, cs_wallet);
         {
-            nFeeRet = credits_nTransactionFee;
+            nFeeRet = credits_payTxFee.GetFeePerK();
             while (true)
             {
                 wtxNew.vin.clear();
@@ -1370,7 +1370,7 @@ bool Credits_CWallet::CreateTransaction(Credits_CWallet *deposit_wallet, const v
                 BOOST_FOREACH (const PAIRTYPE(CScript, int64_t)& s, vecSend)
                 {
                 	CTxOut txout(s.second, s.first);
-                    if (txout.IsDust(Credits_CTransaction::nMinRelayTxFee))
+                    if (txout.IsDust(Credits_CTransaction::minRelayTxFee))
                     {
                         strFailReason = _("Transaction amount too small");
                         return false;
@@ -1400,16 +1400,6 @@ bool Credits_CWallet::CreateTransaction(Credits_CWallet *deposit_wallet, const v
                 }
 
                 int64_t nChange = nValueIn - nValue - nFeeRet;
-                // The following if statement should be removed once enough miners
-                // have upgraded to the 0.9 GetMinFee() rules. Until then, this avoids
-                // creating free transactions that have change outputs less than
-                // CENT bitcoins.
-                if (nFeeRet < Credits_CTransaction::nMinTxFee && nChange > 0 && nChange < CENT)
-                {
-                    int64_t nMoveToFee = min(nChange, Credits_CTransaction::nMinTxFee - nFeeRet);
-                    nChange -= nMoveToFee;
-                    nFeeRet += nMoveToFee;
-                }
 
                 if (nChange > 0)
                 {
@@ -1445,7 +1435,7 @@ bool Credits_CWallet::CreateTransaction(Credits_CWallet *deposit_wallet, const v
 
                     // Never create dust outputs; if we would, just
                     // add the dust to the fee.
-                    if (newTxOut.IsDust(Credits_CTransaction::nMinRelayTxFee))
+                    if (newTxOut.IsDust(Credits_CTransaction::minRelayTxFee))
                     {
                         nFeeRet += nChange;
                         reservekey.ReturnKey();
@@ -1484,7 +1474,7 @@ bool Credits_CWallet::CreateTransaction(Credits_CWallet *deposit_wallet, const v
                 dPriority = wtxNew.ComputePriority(dPriority, nBytes);
 
                 // Check that enough fee is included
-                int64_t nPayFee = credits_nTransactionFee * (1 + (int64_t)nBytes / 1000);
+				int64_t nPayFee = credits_payTxFee.GetFee(nBytes);
                 bool fAllowFree = Credits_AllowFree(dPriority);
                 int64_t nMinFee = Credits_GetMinFee(wtxNew, nBytes, fAllowFree, GMF_SEND);
                 if (nFeeRet < max(nPayFee, nMinFee))
@@ -1541,7 +1531,7 @@ bool Credits_CWallet::CreateDepositTransaction(Credits_CWallet *deposit_wallet, 
 
                 // vouts to the payees
 				CTxOut txout(send.second, send.first);
-				if (txout.IsDust(Credits_CTransaction::nMinRelayTxFee))
+				if (txout.IsDust(Credits_CTransaction::minRelayTxFee))
 				{
 					strFailReason = _("Transaction amount too small");
 					return false;
@@ -1668,7 +1658,7 @@ bool Credits_CWallet::CreateClaimTransaction(Bitcoin_CWallet *bitcoin_wallet, Cr
     {
         LOCK2(cs_main, cs_wallet);
         {
-            nFeeRet = credits_nTransactionFee;
+        	nFeeRet = credits_payTxFee.GetFeePerK();
             while (true)
             {
                 wtxNew.vin.clear();
@@ -1681,7 +1671,7 @@ bool Credits_CWallet::CreateClaimTransaction(Bitcoin_CWallet *bitcoin_wallet, Cr
                 BOOST_FOREACH (const PAIRTYPE(CScript, int64_t)& s, vecSend)
                 {
                 	CTxOut txout(s.second, s.first);
-                    if (txout.IsDust(Credits_CTransaction::nMinRelayTxFee))
+                    if (txout.IsDust(Credits_CTransaction::minRelayTxFee))
                     {
                         strFailReason = _("Transaction amount too small");
                         return false;
@@ -1722,16 +1712,6 @@ bool Credits_CWallet::CreateClaimTransaction(Bitcoin_CWallet *bitcoin_wallet, Cr
                 }
 
                 int64_t nChange = nValueIn - nValue - nFeeRet;
-                // The following if statement should be removed once enough miners
-                // have upgraded to the 0.9 GetMinFee() rules. Until then, this avoids
-                // creating free transactions that have change outputs less than
-                // CENT bitcoins.
-                if (nFeeRet < Credits_CTransaction::nMinTxFee && nChange > 0 && nChange < CENT)
-                {
-                    int64_t nMoveToFee = min(nChange, Credits_CTransaction::nMinTxFee - nFeeRet);
-                    nChange -= nMoveToFee;
-                    nFeeRet += nMoveToFee;
-                }
 
                 if (nChange > 0)
                 {
@@ -1767,7 +1747,7 @@ bool Credits_CWallet::CreateClaimTransaction(Bitcoin_CWallet *bitcoin_wallet, Cr
 
                     // Never create dust outputs; if we would, just
                     // add the dust to the fee.
-                    if (newTxOut.IsDust(Credits_CTransaction::nMinRelayTxFee))
+                    if (newTxOut.IsDust(Credits_CTransaction::minRelayTxFee))
                     {
                         nFeeRet += nChange;
                         reservekey.ReturnKey();
@@ -1807,7 +1787,7 @@ bool Credits_CWallet::CreateClaimTransaction(Bitcoin_CWallet *bitcoin_wallet, Cr
                 dPriority = wtxNew.ComputePriority(dPriority, nBytes);
 
                 // Check that enough fee is included
-                int64_t nPayFee = credits_nTransactionFee * (1 + (int64_t)nBytes / 1000);
+				int64_t nPayFee = credits_payTxFee.GetFee(nBytes);
                 bool fAllowFree = Credits_AllowFree(dPriority);
                 int64_t nMinFee = Credits_GetMinFee(wtxNew, nBytes, fAllowFree, GMF_SEND);
                 if (nFeeRet < max(nPayFee, nMinFee))
@@ -1961,7 +1941,7 @@ string Credits_CWallet::SendMoneyToDestination(Bitcoin_CWallet *bitcoin_wallet, 
     map<uint256, set<int> > mapPreparedDepositTxInPoints;
     deposit_wallet->PreparedDepositTxInPoints(mapPreparedDepositTxInPoints);
 
-    if (nValue + credits_nTransactionFee > GetBalance(mapPreparedDepositTxInPoints))
+    if (nValue > GetBalance(mapPreparedDepositTxInPoints))
         return _("Insufficient funds");
 
     // Parse Credits address

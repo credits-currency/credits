@@ -243,14 +243,6 @@ unsigned int Bitcoin_GetLegacySigOpCount(const Bitcoin_CTransaction& tx);
  */
 unsigned int Bitcoin_GetP2SHSigOpCount(const Bitcoin_CTransaction& tx, Bitcoin_CCoinsViewCache& mapInputs);
 
-
-inline bool Bitcoin_AllowFree(double dPriority)
-{
-    // Large (in bytes) low-priority (new, small-coin) transactions
-    // need a fee.
-    return dPriority > COIN * 144 / 250;
-}
-
 // Check whether all inputs of this transaction are valid (no double spends, scripts & sigs, amounts)
 // This does not modify the UTXO set. If pvChecks is not NULL, script checks are pushed onto it
 // instead of being performed inline.

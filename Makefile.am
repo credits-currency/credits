@@ -5,7 +5,7 @@ SUBDIRS = src
 GZIP_ENV="-9n"
 
 BITCOIND_BIN=$(top_builddir)/src/creditsd$(EXEEXT)
-BITCOIN_QT_BIN=$(top_builddir)/src/qt/credits-qt$(EXEEXT)
+CREDITS_QT_BIN=$(top_builddir)/src/qt/credits-qt$(EXEEXT)
 BITCOIN_CLI_BIN=$(top_builddir)/src/credits-cli$(EXEEXT)
 BITCOIN_WIN_INSTALLER=$(PACKAGE)-$(PACKAGE_VERSION)-win$(WINDOWS_BITS)-setup$(EXEEXT)
 
@@ -45,15 +45,15 @@ distcheck-hook:
 distcleancheck:
 	@:
 
-$(BITCOIN_WIN_INSTALLER): $(BITCOIND_BIN) $(BITCOIN_QT_BIN) $(BITCOIN_CLI_BIN)
+$(BITCOIN_WIN_INSTALLER): $(BITCOIND_BIN) $(CREDITS_QT_BIN) $(BITCOIN_CLI_BIN)
 	$(MKDIR_P) $(top_builddir)/release
 	STRIPPROG="$(STRIP)" $(INSTALL_STRIP_PROGRAM) $(BITCOIND_BIN) $(top_builddir)/release
-	STRIPPROG="$(STRIP)" $(INSTALL_STRIP_PROGRAM) $(BITCOIN_QT_BIN) $(top_builddir)/release
+	STRIPPROG="$(STRIP)" $(INSTALL_STRIP_PROGRAM) $(CREDITS_QT_BIN) $(top_builddir)/release
 	STRIPPROG="$(STRIP)" $(INSTALL_STRIP_PROGRAM) $(BITCOIN_CLI_BIN) $(top_builddir)/release
 	@test -f $(MAKENSIS) && $(MAKENSIS) $(top_builddir)/share/setup.nsi || \
 	  echo error: could not build $@
 
-$(BITCOIND_BIN) $(BITCOIN_QT_BIN) $(BITCOIN_CLI_BIN):
+$(BITCOIND_BIN) $(CREDITS_QT_BIN) $(BITCOIN_CLI_BIN):
 	make -C $(dir $@) $(notdir $@)
 
 $(OSX_APP)/Contents/PkgInfo:
@@ -72,7 +72,7 @@ $(OSX_APP)/Contents/Resources/bitcredit.icns: $(OSX_INSTALLER_ICONS)
 	$(MKDIR_P) $(@D)
 	$(INSTALL_DATA) $< $@
 
-$(OSX_APP)/Contents/MacOS/Credits-Qt: $(BITCOIN_QT_BIN)
+$(OSX_APP)/Contents/MacOS/Credits-Qt: $(CREDITS_QT_BIN)
 	$(MKDIR_P) $(@D)
 	STRIPPROG="$(STRIP)" $(INSTALL_STRIP_PROGRAM)  $< $@
 

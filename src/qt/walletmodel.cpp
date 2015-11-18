@@ -385,12 +385,6 @@ Bitcredit_WalletModel::SendCoinsReturn Bitcredit_WalletModel::prepareTransaction
         return AmountExceedsBalance;
     }
 
-    if((total + credits_nTransactionFee) > nBalance)
-    {
-        transaction.setTransactionFee(credits_nTransactionFee);
-        return SendCoinsReturn(AmountWithFeeExceedsBalance);
-    }
-
     {
         LOCK2(cs_main, wallet->cs_wallet);
 
@@ -549,12 +543,6 @@ Bitcredit_WalletModel::SendCoinsReturn Bitcredit_WalletModel::prepareClaimTransa
     if(total > nBalance)
     {
         return AmountExceedsBalance;
-    }
-
-    if((total + credits_nTransactionFee) > nBalance)
-    {
-        transaction.setTransactionFee(credits_nTransactionFee);
-        return SendCoinsReturn(AmountWithFeeExceedsBalance);
     }
 
     {

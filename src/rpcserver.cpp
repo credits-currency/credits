@@ -292,6 +292,10 @@ static const CRPCCommand vRPCCommands[] =
     { "validateaddress",        &credits_validateaddress,        true,      false,      false }, /* uses wallet if enabled */
     { "bitcoin_validateaddress",        &bitcoin_validateaddress,        true,      false,      false }, /* uses wallet if enabled */
     { "verifymessage",          &verifymessage,          false,     false,      false },
+    { "estimatefee",            &credits_estimatefee,            true,      true,       false },
+    { "estimatepriority",       &credits_estimatepriority,       true,      true,       false },
+    { "bitcoin_estimatefee",            &bitcoin_estimatefee,            true,      true,       false },
+    { "bitcoin_estimatepriority",       &bitcoin_estimatepriority,       true,      true,       false },
 
 #ifdef ENABLE_WALLET
     /* Wallet */

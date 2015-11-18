@@ -268,14 +268,6 @@ unsigned int Bitcredit_GetLegacySigOpCount(const Credits_CTransaction& tx);
  */
 unsigned int Bitcredit_GetP2SHSigOpCount(const Credits_CTransaction& tx, Credits_CCoinsViewCache& bitcredit_inputs);
 
-
-inline bool Credits_AllowFree(double dPriority)
-{
-    // Large (in bytes) low-priority (new, small-coin) transactions
-    // need a fee.
-    return dPriority > COIN * 144 / 250;
-}
-
 bool Bitcredit_FindBestBlockAndCheckClaims(Credits_CCoinsViewCache &credits_view, const int64_t nClaimedCoins);
 //Check that the claiming attempts being done are within the limits (90% of total monetary base and max 15 000 000  coins). Max bitcoin block height (600 000) tested in Bitcredit_CheckBlockHeader
 bool Bitcredit_CheckClaimsAreInBounds(Credits_CCoinsViewCache &credits_inputs, const int64_t nTryClaimedCoins, const int nBitcoinBlockHeight);

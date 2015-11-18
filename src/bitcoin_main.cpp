@@ -52,9 +52,9 @@ bool bitcoin_fSimplifiedBlockValidation = true;
 unsigned int bitcoin_nCoinCacheSize = 5000;
 
 /** Fees smaller than this (in satoshi) are considered zero fee (for transaction creation) */
-int64_t Bitcoin_CTransaction::nMinTxFee = 10000;  // Override with -mintxfee
+CFeeRate Bitcoin_CTransaction::minTxFee = CFeeRate(10000);  // Override with -mintxfee
 /** Fees smaller than this (in satoshi) are considered zero fee (for relaying and mining) */
-int64_t Bitcoin_CTransaction::nMinRelayTxFee = 1000;
+CFeeRate Bitcoin_CTransaction::minRelayTxFee = CFeeRate(1000);
 
 COrphanIndex bitcoin_orphanIndex("bitcoin_orphans");
 
@@ -492,7 +492,7 @@ bool Bitcoin_IsStandardTx(const Bitcoin_CTransaction& tx, string& reason)
         }
         if (whichType == TX_NULL_DATA)
             nDataOut++;
-        else if (txout.IsDust(Bitcoin_CTransaction::nMinRelayTxFee)) {
+        else if (txout.IsDust(Bitcoin_CTransaction::minRelayTxFee)) {
             reason = "dust";
             return false;
         }
@@ -732,10 +732,10 @@ bool Bitcoin_CheckTransaction(const Bitcoin_CTransaction& tx, CValidationState &
 
 int64_t Bitcoin_GetMinFee(const Bitcoin_CTransaction& tx, unsigned int nBytes, bool fAllowFree, enum GetMinFee_mode mode)
 {
-    // Base fee is either nMinTxFee or nMinRelayTxFee
-    int64_t nBaseFee = (mode == GMF_RELAY) ? tx.nMinRelayTxFee : tx.nMinTxFee;
+    // Base fee is either minTxFee or minRelayTxFee
+    CFeeRate baseFeeRate = (mode == GMF_RELAY) ? tx.minRelayTxFee : tx.minTxFee;
 
-    int64_t nMinFee = (1 + (int64_t)nBytes / 1000) * nBaseFee;
+    int64_t nMinFee = baseFeeRate.GetFee(nBytes);
 
     if (fAllowFree)
     {
@@ -747,16 +747,6 @@ int64_t Bitcoin_GetMinFee(const Bitcoin_CTransaction& tx, unsigned int nBytes, b
         //   to be considered safe and assume they can likely make it into this section.
         if (nBytes < (mode == GMF_SEND ? 1000 : (BITCOIN_DEFAULT_BLOCK_PRIORITY_SIZE - 1000)))
             nMinFee = 0;
-    }
-
-    // This code can be removed after enough miners have upgraded to version 0.9.
-    // Until then, be safe when sending and require a fee if any output
-    // is less than CENT:
-    if (nMinFee < nBaseFee && mode == GMF_SEND)
-    {
-        BOOST_FOREACH(const CTxOut& txout, tx.vout)
-            if (txout.nValue < CENT)
-                nMinFee = nBaseFee;
     }
 
     if (!Bitcoin_MoneyRange(nMinFee))
@@ -810,6 +800,7 @@ bool Bitcoin_AcceptToMemoryPool(Bitcoin_CTxMemPool& pool, CValidationState &stat
         Bitcoin_CCoinsView dummy;
         Bitcoin_CCoinsViewCache view(dummy);
 
+        int64_t nValueIn = 0;
         {
         LOCK(pool.cs);
         Bitcoin_CCoinsViewMemPool viewMemPool(*bitcoin_pcoinsTip, pool);
@@ -838,6 +829,8 @@ bool Bitcoin_AcceptToMemoryPool(Bitcoin_CTxMemPool& pool, CValidationState &stat
         // Bring the best block into scope
         view.GetBestBlock();
 
+        nValueIn = view.GetValueIn(tx);
+
         // we have all inputs cached now, so switch back to dummy, so we don't need to keep lock on mempool
         view.SetBackend(dummy);
         }
@@ -850,7 +843,6 @@ bool Bitcoin_AcceptToMemoryPool(Bitcoin_CTxMemPool& pool, CValidationState &stat
         // you should add code here to check that the transaction does a
         // reasonable number of ECDSA signature verifications.
 
-        int64_t nValueIn = view.GetValueIn(tx);
         int64_t nValueOut = tx.GetValueOut();
         int64_t nFees = nValueIn-nValueOut;
         double dPriority = view.GetPriority(tx, bitcoin_chainActive.Height());
@@ -865,10 +857,10 @@ bool Bitcoin_AcceptToMemoryPool(Bitcoin_CTxMemPool& pool, CValidationState &stat
                                       hash.ToString(), nFees, txMinFee),
                              BITCOIN_REJECT_INSUFFICIENTFEE, "insufficient fee");
 
-        // Continuously rate-limit free transactions
+        // Continuously rate-limit free (really, very-low-fee)transactions
         // This mitigates 'penny-flooding' -- sending thousands of free transactions just to
         // be annoying or make others' transactions take longer to confirm.
-        if (fLimitFree && nFees < Bitcoin_CTransaction::nMinRelayTxFee)
+        if (fLimitFree && nFees < Bitcoin_CTransaction::minRelayTxFee.GetFee(nSize))
         {
             static CCriticalSection csFreeLimiter;
             static double dFreeCount;
@@ -889,10 +881,10 @@ bool Bitcoin_AcceptToMemoryPool(Bitcoin_CTxMemPool& pool, CValidationState &stat
             dFreeCount += nSize;
         }
 
-        if (fRejectInsaneFee && nFees > Bitcoin_CTransaction::nMinRelayTxFee * 10000)
+        if (fRejectInsaneFee && nFees > Bitcoin_CTransaction::minRelayTxFee.GetFee(nSize) * 10000)
             return error("Bitcoin: AcceptToMemoryPool: : insane fees %s, %d > %d",
                          hash.ToString(),
-                         nFees, Bitcoin_CTransaction::nMinRelayTxFee * 10000);
+                         nFees, Bitcoin_CTransaction::minRelayTxFee.GetFee(nSize) * 10000);
 
         // Check against previous transactions
         // This is done last to help prevent CPU exhaustion denial-of-service attacks.
@@ -2954,11 +2946,7 @@ bool static Bitcoin_ConnectTip(CValidationState &state, Bitcoin_CBlockIndex *pin
     }
     // Remove conflicting transactions from the mempool.
     list<Bitcoin_CTransaction> txConflicted;
-    BOOST_FOREACH(const Bitcoin_CTransaction &tx, block.vtx) {
-        list<Bitcoin_CTransaction> unused;
-        bitcoin_mempool.remove(tx, unused);
-        bitcoin_mempool.removeConflicts(tx, txConflicted);
-    }
+    bitcoin_mempool.removeForBlock(block.vtx, pindexNew->nHeight, txConflicted);
     bitcoin_mempool.check(bitcoin_pcoinsTip);
     // Update chainActive & related variables.
     Bitcoin_UpdateTip(pindexNew);

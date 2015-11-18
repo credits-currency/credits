@@ -85,9 +85,9 @@ Value bitcredit_getinfo(const Array& params, bool fHelp)
     }
     if (bitcredit_pwalletMain && bitcredit_pwalletMain->IsCrypted())
         obj.push_back(Pair("unlocked_until", bitcredit_nWalletUnlockTime));
-    obj.push_back(Pair("paytxfee",      ValueFromAmount(credits_nTransactionFee)));
+    obj.push_back(Pair("paytxfee",      ValueFromAmount(credits_payTxFee.GetFeePerK())));
 #endif
-    obj.push_back(Pair("relayfee",      ValueFromAmount(Credits_CTransaction::nMinRelayTxFee)));
+    obj.push_back(Pair("relayfee",      ValueFromAmount(Credits_CTransaction::minRelayTxFee.GetFeePerK())));
     obj.push_back(Pair("errors",        Bitcredit_GetWarnings("statusbar")));
     return obj;
 }
@@ -151,9 +151,9 @@ Value bitcoin_getinfo(const Array& params, bool fHelp)
     }
     if (bitcoin_pwalletMain && bitcoin_pwalletMain->IsCrypted())
         obj.push_back(Pair("unlocked_until", bitcoin_nWalletUnlockTime));
-    obj.push_back(Pair("paytxfee",      ValueFromAmount(bitcoin_nTransactionFee)));
+    obj.push_back(Pair("paytxfee",      ValueFromAmount(bitcoin_payTxFee.GetFeePerK())));
 #endif
-    obj.push_back(Pair("relayfee",      ValueFromAmount(Bitcoin_CTransaction::nMinRelayTxFee)));
+    obj.push_back(Pair("relayfee",      ValueFromAmount(Bitcoin_CTransaction::minRelayTxFee.GetFeePerK())));
     obj.push_back(Pair("errors",        Bitcoin_GetWarnings("statusbar")));
     return obj;
 }

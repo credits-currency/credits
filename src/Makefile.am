@@ -1,16 +1,35 @@
-include Makefile.include
+AM_CPPFLAGS =  $(INCLUDES)
+AM_LDFLAGS = $(PTHREAD_CFLAGS)
 
-AM_CPPFLAGS += -I$(builddir)
+
+if EMBEDDED_LEVELDB
+LEVELDB_CPPFLAGS += -I$(srcdir)/leveldb/include
+LEVELDB_CPPFLAGS += -I$(srcdir)/leveldb/helpers/memenv
+LIBLEVELDB += $(builddir)/leveldb/libleveldb.a
+LIBMEMENV  += $(builddir)/leveldb/libmemenv.a
+
+# NOTE: This dependency is not strictly necessary, but without it make may try to build both in parallel, which breaks the LevelDB build system in a race
+$(LIBLEVELDB): $(LIBMEMENV)
+
+$(LIBLEVELDB) $(LIBMEMENV):
+	@echo "Building LevelDB ..." && $(MAKE) -C $(@D) $(@F) CXX="$(CXX)" \
+	  CC="$(CC)" PLATFORM=$(TARGET_OS) AR="$(AR)" $(LEVELDB_TARGET_FLAGS) \
+          OPT="$(CXXFLAGS) $(CPPFLAGS)"
+endif
+
+CREDITS_INCLUDES=-I$(builddir) -I$(builddir)/obj $(BOOST_CPPFLAGS) $(LEVELDB_CPPFLAGS)
 
 noinst_LIBRARIES = \
   libcredits_server.a \
   libcredits_common.a \
   libcredits_cli.a
 if ENABLE_WALLET
+CREDITS_INCLUDES += $(BDB_CPPFLAGS)
 noinst_LIBRARIES += libcredits_wallet.a
 endif
 
 bin_PROGRAMS =
+TESTS =
 
 if BUILD_BITCOIND
   bin_PROGRAMS += creditsd
@@ -20,8 +39,6 @@ if BUILD_BITCOIN_CLI
   bin_PROGRAMS += credits-cli
 endif
 
-SUBDIRS = . $(BUILD_QT) $(BUILD_TEST)
-DIST_SUBDIRS = . qt test
 .PHONY: FORCE
 # bitcoin core #
 BITCOIN_CORE_H = \
@@ -94,11 +111,12 @@ JSON_H = \
   json/json_spirit_writer_template.h
 
 obj/build.h: FORCE
-	@$(MKDIR_P) $(abs_top_builddir)/src/obj
+	@$(MKDIR_P) $(builddir)/obj
 	@$(top_srcdir)/share/genbuild.sh $(abs_top_builddir)/src/obj/build.h \
 	  $(abs_top_srcdir)
-version.o: obj/build.h
+libcredits_common_a-version.$(OBJEXT): obj/build.h
 
+libcredits_server_a_CPPFLAGS = $(CREDITS_INCLUDES)
 libcredits_server_a_SOURCES = \
   addrman.cpp \
   alert.cpp \
@@ -129,6 +147,7 @@ libcredits_server_a_SOURCES = \
   $(JSON_H) \
   $(BITCOIN_CORE_H)
 
+libcredits_wallet_a_CPPFLAGS = $(CREDITS_INCLUDES)
 libcredits_wallet_a_SOURCES = \
   db.cpp \
   bitcoin_db.cpp \
@@ -141,6 +160,7 @@ libcredits_wallet_a_SOURCES = \
   bitcoin_walletdb.cpp \
   $(BITCOIN_CORE_H)
 
+libcredits_common_a_CPPFLAGS = $(CREDITS_INCLUDES)
 libcredits_common_a_SOURCES = \
   base58.cpp \
   allocators.cpp \
@@ -168,7 +188,7 @@ libcredits_cli_a_SOURCES = \
   rpcclient.cpp \
   $(BITCOIN_CORE_H)
 
-nodist_libcredits_common_a_SOURCES = $(top_srcdir)/src/obj/build.h
+nodist_libcredits_common_a_SOURCES = $(srcdir)/obj/build.h
 #
 
 # creditsd binary #
@@ -188,8 +208,8 @@ if TARGET_WINDOWS
 creditsd_SOURCES += creditsd-res.rc
 endif
 
-AM_CPPFLAGS += $(BDB_CPPFLAGS)
 creditsd_LDADD += $(BOOST_LIBS) $(BDB_LIBS)
+creditsd_CPPFLAGS = $(CREDITS_INCLUDES)
 
 # credits-cli binary #
 credits_cli_LDADD = \
@@ -197,30 +217,49 @@ credits_cli_LDADD = \
   libcredits_common.a \
   $(BOOST_LIBS)
 credits_cli_SOURCES = credits-cli.cpp
+credits_cli_CPPFLAGS = $(CREDITS_INCLUDES)
 #
 
 if TARGET_WINDOWS
 credits_cli_SOURCES += credits-cli-res.rc
 endif
 
-# NOTE: This dependency is not strictly necessary, but without it make may try to build both in parallel, which breaks the LevelDB build system in a race
-leveldb/libleveldb.a: leveldb/libmemenv.a
-
-leveldb/%.a:
-	@echo "Building LevelDB ..." && $(MAKE) -C $(@D) $(@F) CXX="$(CXX)" \
-	  CC="$(CC)" PLATFORM=$(TARGET_OS) AR="$(AR)" $(LEVELDB_TARGET_FLAGS) \
-	  OPT="$(CXXFLAGS) $(CPPFLAGS)"
-
-qt/bitcoinstrings.cpp: $(libcredits_server_a_SOURCES) $(libcredits_common_a_SOURCES) $(libcredits_cli_a_SOURCES)
-	@test -n $(XGETTEXT) || echo "xgettext is required for updating translations"
-	@cd $(top_srcdir); XGETTEXT=$(XGETTEXT) share/qt/extract_strings_qt.py
-
 CLEANFILES = leveldb/libleveldb.a leveldb/libmemenv.a *.gcda *.gcno
 
 DISTCLEANFILES = obj/build.h
 
-EXTRA_DIST = leveldb Makefile.include
+EXTRA_DIST = leveldb
 
 clean-local:
 	-$(MAKE) -C leveldb clean
 	rm -f leveldb/*/*.gcno leveldb/helpers/memenv/*.gcno
+
+.rc.o:
+	@test -f $(WINDRES)
+	$(AM_V_GEN) $(WINDRES) -i $< -o $@
+
+.mm.o:
+	$(AM_V_CXX) $(OBJCXX) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) \
+	  $(CPPFLAGS) $(AM_CXXFLAGS) $(QT_INCLUDES) $(CXXFLAGS)  -c -o $@ $<
+
+%.pb.cc %.pb.h: %.proto
+	@test -f $(PROTOC)
+	$(AM_V_GEN) $(PROTOC) --cpp_out=$(@D) --proto_path=$(abspath $(<D) $<)
+
+LIBCREDITS_SERVER=libcredits_server.a
+LIBCREDITS_WALLET=libcredits_wallet.a
+LIBCREDITS_COMMON=libcredits_common.a
+LIBCREDITS_CLI=libcredits_cli.a
+LIBCREDITSQT=qt/libcreditsqt.a
+
+if ENABLE_TESTS
+include Makefile.test.include
+endif
+
+if ENABLE_QT
+include Makefile.qt.include
+endif
+
+if ENABLE_QT_TESTS
+include Makefile.qttest.include
+endif

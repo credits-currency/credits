@@ -690,7 +690,7 @@ Value bitcredit_getnetworkinfo(const Array& params, bool fHelp)
     obj.push_back(Pair("timeoffset",    GetTimeOffset()));
     obj.push_back(Pair("connections",   (int)netParams->vNodes.size()));
     obj.push_back(Pair("proxy",         (proxy.first.IsValid() ? proxy.first.ToStringIPPort() : string())));
-    obj.push_back(Pair("relayfee",      ValueFromAmount(Credits_CTransaction::nMinRelayTxFee)));
+    obj.push_back(Pair("relayfee",      ValueFromAmount(Credits_CTransaction::minRelayTxFee.GetFeePerK())));
     Array localAddresses;
     {
         LOCK(netParams->cs_mapLocalHost);
@@ -743,7 +743,7 @@ Value bitcoin_getnetworkinfo(const Array& params, bool fHelp)
     obj.push_back(Pair("timeoffset",    GetTimeOffset()));
     obj.push_back(Pair("connections",   (int)netParams->vNodes.size()));
     obj.push_back(Pair("proxy",         (proxy.first.IsValid() ? proxy.first.ToStringIPPort() : string())));
-    obj.push_back(Pair("relayfee",      ValueFromAmount(Bitcoin_CTransaction::nMinRelayTxFee)));
+    obj.push_back(Pair("relayfee",      ValueFromAmount(Bitcoin_CTransaction::minRelayTxFee.GetFeePerK())));
     Array localAddresses;
     {
         LOCK(netParams->cs_mapLocalHost);

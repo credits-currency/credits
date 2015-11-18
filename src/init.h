@@ -40,7 +40,7 @@ bool AppInit2(boost::thread_group& threadGroup);
 enum HelpMessageMode
 {
     HMM_BITCOIND,
-    HMM_BITCOIN_QT
+    HMM_CREDITS_QT
 };
 
 std::string HelpMessage(HelpMessageMode mode);

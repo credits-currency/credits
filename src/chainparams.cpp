@@ -22,7 +22,7 @@ using namespace boost::assign;
 
 unsigned int bitcredit_pnSeed[] =
 {
-		0xfcdb9a36, 0xaf9f9a36, 0x06329a36, 0x2b78ae36, 0x4080ae36, 0xb689ae36,
+		0x06329a36, 0x4080ae36, 0x6a361e55,
 };
 unsigned int bitcoin_pnSeed[] =
 {
@@ -223,7 +223,7 @@ Bitcoin_CMainParams::Bitcoin_CMainParams() {
     //Hardcoded linkage to bitcoin "real" version
     nClientVersion = 1000000 * 	0
     							+ 10000 * 	9
-    							+ 100 * 		1
+    							+ 100 * 		2
     							+ 1 * 			0;
     nAcceptDepthLinkedBitcoinBlock = 10000;
     nDepositLockDepth = 15000;

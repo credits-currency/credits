@@ -76,6 +76,9 @@ enum BindFlags {
     BF_REPORT_ERROR = (1U << 1)
 };
 
+static const char* CREDITS_FEE_ESTIMATES_FILENAME="credits_fee_estimates.dat";
+static const char* BITCOIN_FEE_ESTIMATES_FILENAME="bitcoin_fee_estimates.dat";
+
 
 //////////////////////////////////////////////////////////////////////////////
 //
@@ -151,6 +154,13 @@ void Shutdown()
 #endif
     StopNode();
     bitcredit_netParams->UnregisterNodeSignals();
+    boost::filesystem::path credits_est_path = GetDataDir() / CREDITS_FEE_ESTIMATES_FILENAME;
+    CAutoFile credits_est_fileout = CAutoFile(fopen(credits_est_path.string().c_str(), "wb"), SER_DISK, Credits_Params().ClientVersion());
+    if (credits_est_fileout)
+        credits_mempool.WriteFeeEstimates(credits_est_fileout, Credits_Params().ClientVersion());
+    else
+        LogPrintf("Credits: failed to write fee estimates");
+
     {
         LOCK(cs_main);
 #ifdef ENABLE_WALLET
@@ -206,6 +216,13 @@ void Shutdown()
 #endif
 
     bitcoin_netParams->UnregisterNodeSignals();
+    boost::filesystem::path bitcoin_est_path = GetDataDir() / BITCOIN_FEE_ESTIMATES_FILENAME;
+    CAutoFile bitcoin_est_fileout = CAutoFile(fopen(bitcoin_est_path.string().c_str(), "wb"), SER_DISK, Bitcoin_Params().ClientVersion());
+    if (bitcoin_est_fileout)
+        bitcoin_mempool.WriteFeeEstimates(bitcoin_est_fileout, Bitcoin_Params().ClientVersion());
+    else
+        LogPrintf("failed to write fee estimates");
+
     {
         LOCK(cs_main);
         if (bitcoin_pblocktree)
@@ -373,7 +390,7 @@ std::string HelpMessage(HelpMessageMode hmm)
     strUsage += "                         " + _("If <category> is not supplied, output all debugging information.") + "\n";
     strUsage += "                         " + _("<category> can be:");
     strUsage +=                                 " addrman, alert, coindb, db, lock, rand, rpc, selectcoins, mempool, net"; // Don't translate these and qt below
-    if (hmm == HMM_BITCOIN_QT)
+    if (hmm == HMM_CREDITS_QT)
         strUsage += ", qt";
     strUsage += ".\n";
     strUsage += "  -gen                   " + _("Generate coins (default: 0)") + "\n";
@@ -386,9 +403,9 @@ std::string HelpMessage(HelpMessageMode hmm)
         strUsage += "  -limitfreerelay=<n>    " + _("Continuously rate-limit free transactions to <n>*1000 bytes per minute (default:15)") + "\n";
         strUsage += "  -maxsigcachesize=<n>   " + _("Limit size of signature cache to <n> entries (default: 50000)") + "\n";
     }
-    strUsage += "  -mintxfee=<amt>        " + _("Fees smaller than this are considered zero fee (for transaction creation) (default:") + " " + FormatMoney(Credits_CTransaction::nMinTxFee) + ")" + "\n";
+    strUsage += "  -mintxfee=<amt>        " + _("Fees smaller than this are considered zero fee (for transaction creation) (default:") + " " + FormatMoney(Credits_CTransaction::minTxFee.GetFeePerK()) + ")" + "\n";
     strUsage += "  -bitcoin_mintxfee=<amt>   " + _("Same as above, for bitcoin") + "\n";
-    strUsage += "  -minrelaytxfee=<amt>   " + _("Fees smaller than this are considered zero fee (for relaying) (default:") + " " + FormatMoney(Credits_CTransaction::nMinRelayTxFee) + ")" + "\n";
+    strUsage += "  -minrelaytxfee=<amt>   " + _("Fees smaller than this are considered zero fee (for relaying) (default:") + " " + FormatMoney(Credits_CTransaction::minRelayTxFee.GetFeePerK()) + ")" + "\n";
     strUsage += "  -bitcoin_minrelaytxfee=<amt>   " + _("Same as above, for bitcoin") + "\n";
     strUsage += "  -printtoconsole        " + _("Send trace/debug info to console instead of debug.log file") + "\n";
     if (GetBoolArg("-help-debug", false))
@@ -1084,7 +1101,7 @@ bool Bitcredit_AppInit2(boost::thread_group& threadGroup) {
     {
         int64_t n = 0;
         if (ParseMoney(mapArgs["-bitcoin_mintxfee"], n) && n > 0)
-            Bitcoin_CTransaction::nMinTxFee = n;
+            Bitcoin_CTransaction::minTxFee = CFeeRate(n);
         else
             return InitError(strprintf(_("Invalid amount for -bitcoin_mintxfee=<amount>: '%s'"), mapArgs["-bitcoin_mintxfee"]));
     }
@@ -1092,7 +1109,7 @@ bool Bitcredit_AppInit2(boost::thread_group& threadGroup) {
     {
         int64_t n = 0;
         if (ParseMoney(mapArgs["-mintxfee"], n) && n > 0)
-            Credits_CTransaction::nMinTxFee = n;
+            Credits_CTransaction::minTxFee = CFeeRate(n);
         else
             return InitError(strprintf(_("Invalid amount for -mintxfee=<amount>: '%s'"), mapArgs["-mintxfee"]));
     }
@@ -1101,7 +1118,7 @@ bool Bitcredit_AppInit2(boost::thread_group& threadGroup) {
     {
         int64_t n = 0;
         if (ParseMoney(mapArgs["-bitcoin_minrelaytxfee"], n) && n > 0)
-            Bitcoin_CTransaction::nMinRelayTxFee = n;
+            Bitcoin_CTransaction::minRelayTxFee = CFeeRate(n);
         else
             return InitError(strprintf(_("Invalid amount for -bitcoin_minrelaytxfee=<amount>: '%s'"), mapArgs["-bitcoin_minrelaytxfee"]));
     }
@@ -1109,7 +1126,7 @@ bool Bitcredit_AppInit2(boost::thread_group& threadGroup) {
     {
         int64_t n = 0;
         if (ParseMoney(mapArgs["-minrelaytxfee"], n) && n > 0)
-            Credits_CTransaction::nMinRelayTxFee = n;
+            Credits_CTransaction::minRelayTxFee = CFeeRate(n);
         else
             return InitError(strprintf(_("Invalid amount for -minrelaytxfee=<amount>: '%s'"), mapArgs["-minrelaytxfee"]));
     }
@@ -1117,10 +1134,12 @@ bool Bitcredit_AppInit2(boost::thread_group& threadGroup) {
 #ifdef ENABLE_WALLET
     if (mapArgs.count("-bitcoin_paytxfee"))
     {
-        if (!ParseMoney(mapArgs["-bitcoin_paytxfee"], bitcoin_nTransactionFee))
+        int64_t nFeePerK = 0;
+        if (!ParseMoney(mapArgs["-bitcoin_paytxfee"], nFeePerK))
             return InitError(strprintf(_("Invalid amount for -bitcoin_paytxfee=<amount>: '%s'"), mapArgs["-bitcoin_paytxfee"]));
-        if (bitcoin_nTransactionFee > bitcoin_nHighTransactionFeeWarning)
+        if (nFeePerK > bitcoin_nHighTransactionFeeWarning)
             InitWarning(_("Warning: -bitcoin_paytxfee is set very high! This is the transaction fee you will pay if you send a transaction."));
+        bitcoin_payTxFee = CFeeRate(nFeePerK, 1000);
     }
     bitcoin_bSpendZeroConfChange = GetArg("-bitcoin_spendzeroconfchange", true);
 
@@ -1129,10 +1148,12 @@ bool Bitcredit_AppInit2(boost::thread_group& threadGroup) {
 #ifdef ENABLE_WALLET
     if (mapArgs.count("-paytxfee"))
     {
-        if (!ParseMoney(mapArgs["-paytxfee"], credits_nTransactionFee))
+        int64_t nFeePerK = 0;
+        if (!ParseMoney(mapArgs["-paytxfee"], nFeePerK))
             return InitError(strprintf(_("Invalid amount for -paytxfee=<amount>: '%s'"), mapArgs["-paytxfee"]));
-        if (credits_nTransactionFee > credits_nHighTransactionFeeWarning)
+        if (nFeePerK > credits_nHighTransactionFeeWarning)
             InitWarning(_("Warning: -paytxfee is set very high! This is the transaction fee you will pay if you send a transaction."));
+        credits_payTxFee = CFeeRate(nFeePerK, 1000);
     }
     credits_bSpendZeroConfChange = GetArg("-spendzeroconfchange", true);
 
@@ -1193,6 +1214,7 @@ bool Bitcredit_AppInit2(boost::thread_group& threadGroup) {
         LogPrintf("Startup time: %s\n", DateTimeStrFormat("%Y-%m-%d %H:%M:%S", GetTime()));
     LogPrintf("Default data directory %s\n", GetDefaultDataDir().string());
     LogPrintf("Using data directory %s\n", strDataDir);
+    LogPrintf("Using config file %s\n", GetConfigFile().string());
     LogPrintf("Bitcoin using at most %i connections\n", bitcoin_netParams->nMaxConnections);
     LogPrintf("Credits using at most %i connections\n", bitcredit_netParams->nMaxConnections);
     std::ostringstream strErrors;
@@ -1461,6 +1483,16 @@ bool Bitcredit_AppInit2(boost::thread_group& threadGroup) {
             LogPrintf("No blocks matching %s were found\n", strMatch);
         return false;
     }
+
+    boost::filesystem::path credits_est_path = GetDataDir() / CREDITS_FEE_ESTIMATES_FILENAME;
+    CAutoFile credits_est_filein = CAutoFile(fopen(credits_est_path.string().c_str(), "rb"), SER_DISK, Credits_Params().ClientVersion());
+    if (credits_est_filein)
+        credits_mempool.ReadFeeEstimates(credits_est_filein, Credits_Params().ClientVersion());
+
+    boost::filesystem::path bitcoin_est_path = GetDataDir() / BITCOIN_FEE_ESTIMATES_FILENAME;
+    CAutoFile bitcoin_est_filein = CAutoFile(fopen(bitcoin_est_path.string().c_str(), "rb"), SER_DISK, Bitcoin_Params().ClientVersion());
+    if (bitcoin_est_filein)
+        bitcoin_mempool.ReadFeeEstimates(bitcoin_est_filein, Bitcoin_Params().ClientVersion());
 
     // ********************************************************* Step 8: load wallet
 #ifdef ENABLE_WALLET
