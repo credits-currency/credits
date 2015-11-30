@@ -967,9 +967,15 @@ const boost::filesystem::path &GetDataDir(bool fNetSpecific)
     return path;
 }
 
+static boost::filesystem::path tmpDataDir;
+static bool tmpDataDirLoaded = false;
 const boost::filesystem::path &GetTmpDataDir()
 {
-    return GetDataDir() / ".tmp";
+	if(!tmpDataDirLoaded) {
+		tmpDataDir = GetDataDir() / ".tmp";
+		tmpDataDirLoaded = true;
+	}
+	return tmpDataDir;
 }
 
 void ClearDatadirCache()
